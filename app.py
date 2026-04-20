@@ -1,6 +1,6 @@
 """
 Streamlit Trading Bot – EMA Crossover Strategy
-Modern, logo‑free UI with live dashboard, setup guide, and theme toggle.
+Modern UI with theme toggle and hidden Streamlit branding.
 """
 
 import streamlit as st
@@ -13,17 +13,22 @@ from datetime import datetime, timedelta
 import alpaca_trade_api as tradeapi
 
 # ------------------------------
-# Page Configuration (Wide, Clean)
+# Page Configuration
 # ------------------------------
 st.set_page_config(
     page_title="EMA Crossover Bot",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': None
+    }
 )
 
 # ------------------------------
-# Session State Initialisation (including theme)
+# Session State (includes theme)
 # ------------------------------
 if "bot_running" not in st.session_state:
     st.session_state.bot_running = False
@@ -44,13 +49,12 @@ if "chart_data" not in st.session_state:
 if "loop_log" not in st.session_state:
     st.session_state.loop_log = "Waiting to start..."
 if "theme" not in st.session_state:
-    st.session_state.theme = "Light"   # Default theme
+    st.session_state.theme = "Light"
 
 # ------------------------------
-# Dynamic Theme CSS (Light / Dark)
+# Dynamic Theme + Hide Streamlit UI
 # ------------------------------
 def inject_theme_css():
-    """Inject custom CSS based on the selected theme."""
     if st.session_state.theme == "Dark":
         bg_color = "#0e1117"
         sidebar_bg = "#1e2530"
@@ -74,6 +78,15 @@ def inject_theme_css():
 
     st.markdown(f"""
     <style>
+        /* Hide Streamlit default menu, footer, and deploy button */
+        #MainMenu {{visibility: hidden;}}
+        footer {{visibility: hidden;}}
+        header {{visibility: hidden;}}
+        .stDeployButton {{display: none !important;}}
+        div[data-testid="stToolbar"] {{display: none !important;}}
+        div[data-testid="stDecoration"] {{display: none !important;}}
+        div[data-testid="stStatusWidget"] {{display: none !important;}}
+
         /* Overall background */
         .stApp {{
             background-color: {bg_color};
@@ -102,11 +115,6 @@ def inject_theme_css():
             transition: all 0.2s;
         }}
 
-        /* Status boxes */
-        .element-container:has(div[data-testid="stAlert"]) {{
-            border-radius: 10px;
-        }}
-
         /* Chart container */
         div[data-testid="stArrowVegaLiteChart"] {{
             background-color: {chart_bg};
@@ -121,11 +129,6 @@ def inject_theme_css():
             font-weight: 600;
             background-color: {tab_bg};
             border-radius: 8px;
-        }}
-
-        /* Reduce top padding */
-        .block-container {{
-            padding-top: 2rem;
         }}
 
         /* Tabs styling */
@@ -149,24 +152,17 @@ def inject_theme_css():
             color: {text_color} !important;
             border-color: {border_color} !important;
         }}
-
-        /* Radio buttons (theme toggle) */
-        div[data-testid="stRadio"] label {{
-            color: {text_color} !important;
-        }}
     </style>
     """, unsafe_allow_html=True)
 
-# Inject the theme CSS
 inject_theme_css()
 
 # ------------------------------
-# Sidebar – API Configuration + Theme Toggle
+# Sidebar – Configuration + Theme
 # ------------------------------
 with st.sidebar:
     st.title("⚙️ Bot Config")
 
-    # Theme toggle
     theme = st.radio(
         "🎨 Theme",
         ["Light", "Dark"],
@@ -181,37 +177,14 @@ with st.sidebar:
     st.markdown("---")
 
     with st.expander("🔐 Alpaca Paper Trading", expanded=True):
-        alpaca_api_key = st.text_input(
-            "API Key",
-            type="password",
-            placeholder="PK...",
-            help="Find this in your Alpaca Paper Dashboard"
-        )
-        alpaca_secret_key = st.text_input(
-            "Secret Key",
-            type="password",
-            placeholder="...",
-            help="Keep this secret!"
-        )
+        alpaca_api_key = st.text_input("API Key", type="password", placeholder="PK...")
+        alpaca_secret_key = st.text_input("Secret Key", type="password", placeholder="...")
 
     with st.expander("📱 Telegram Alerts", expanded=True):
-        telegram_token = st.text_input(
-            "Bot Token",
-            type="password",
-            placeholder="123456:ABC...",
-            help="From @BotFather"
-        )
-        telegram_chat_id = st.text_input(
-            "Chat ID",
-            placeholder="123456789",
-            help="Your numeric Telegram Chat ID"
-        )
+        telegram_token = st.text_input("Bot Token", type="password", placeholder="123456:ABC...")
+        telegram_chat_id = st.text_input("Chat ID", placeholder="123456789")
 
-    ticker = st.text_input(
-        "📊 Stock Ticker",
-        value="AAPL",
-        help="Yahoo Finance symbol (e.g., AAPL, TSLA, 2222.SR)"
-    ).upper().strip()
+    ticker = st.text_input("📊 Stock Ticker", value="AAPL").upper().strip()
 
     st.markdown("---")
     col1, col2 = st.columns(2)
@@ -228,25 +201,16 @@ def fetch_market_status(api_key, secret_key):
     if not api_key or not secret_key:
         return False, None, None
     try:
-        api = tradeapi.REST(
-            api_key,
-            secret_key,
-            base_url="https://paper-api.alpaca.markets",
-            api_version="v2"
-        )
+        api = tradeapi.REST(api_key, secret_key, base_url="https://paper-api.alpaca.markets", api_version="v2")
         clock = api.get_clock()
         return clock.is_open, clock.next_open, clock.next_close
     except:
         return False, None, None
 
-# Update market status immediately (even before bot starts)
 if not st.session_state.bot_running:
     is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
     st.session_state.market_status = "🟢 Open" if is_open else "🔴 Closed" if alpaca_api_key else "Unknown"
 
-# ------------------------------
-# Telegram Alert Function
-# ------------------------------
 def send_telegram_alert(message: str):
     if not telegram_token or not telegram_chat_id:
         return False, "Missing credentials"
@@ -254,10 +218,7 @@ def send_telegram_alert(message: str):
     payload = {"chat_id": telegram_chat_id, "text": message, "parse_mode": "HTML"}
     try:
         resp = requests.post(url, json=payload, timeout=10)
-        if resp.status_code == 200:
-            return True, None
-        else:
-            return False, resp.json().get("description", "Unknown error")
+        return (resp.status_code == 200), resp.json().get("description", "Unknown error")
     except Exception as e:
         return False, str(e)
 
@@ -270,12 +231,7 @@ def trading_loop():
         st.session_state.bot_running = False
         return
     try:
-        api = tradeapi.REST(
-            alpaca_api_key,
-            alpaca_secret_key,
-            base_url="https://paper-api.alpaca.markets",
-            api_version="v2"
-        )
+        api = tradeapi.REST(alpaca_api_key, alpaca_secret_key, base_url="https://paper-api.alpaca.markets", api_version="v2")
         acc = api.get_account()
         if acc.status != "ACTIVE":
             st.session_state.status_message = "❌ Alpaca account not active"
