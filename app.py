@@ -67,7 +67,7 @@ telegram_token = st.sidebar.text_input(
 telegram_chat_id = st.sidebar.text_input(
     "Telegram Chat ID",
     placeholder="123456789",
-    help="Your numeric or string Chat ID"
+    help="Your numeric Chat ID (not username)"
 )
 
 # Trading instrument
@@ -88,8 +88,7 @@ stop_btn = col2.button("⏹️ Stop Bot", disabled=not st.session_state.bot_runn
 def send_telegram_alert(message: str):
     """Send a message to the configured Telegram chat."""
     if not telegram_token or not telegram_chat_id:
-        st.warning("Telegram credentials missing. Alert not sent.")
-        return
+        return False, "Telegram credentials missing."
     url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
     payload = {
         "chat_id": telegram_chat_id,
@@ -98,10 +97,12 @@ def send_telegram_alert(message: str):
     }
     try:
         response = requests.post(url, json=payload, timeout=10)
-        if response.status_code != 200:
-            st.error(f"Telegram send failed: {response.text}")
+        if response.status_code == 200:
+            return True, None
+        else:
+            return False, response.json().get("description", "Unknown error")
     except Exception as e:
-        st.error(f"Telegram error: {e}")
+        return False, str(e)
 
 # ------------------------------
 # Trading Logic (runs in background thread)
@@ -136,7 +137,7 @@ def trading_loop():
         st.session_state.bot_running = False
         return
 
-    st.session_state.status_message = f"✅ Bot started for {ticker} – checking every minute."
+    st.session_state.status_message = f"✅ Bot running for {ticker} – checking every minute."
 
     # Initialise variables for crossover detection
     position = None            # 'long' or None
@@ -157,6 +158,7 @@ def trading_loop():
 
             if data.empty:
                 loop_status.error(f"No data for {ticker}. Check ticker symbol.")
+                st.session_state.status_message = f"❌ No data for {ticker}"
                 time.sleep(60)
                 continue
 
@@ -183,10 +185,8 @@ def trading_loop():
                 # Bullish crossover: EMA9 crosses above EMA50
                 if prev_ema9 <= prev_ema50 and ema9 > ema50:
                     last_crossover = "BULLISH"
-                    # If not already long, submit a buy order
                     if position != "long":
                         try:
-                            # Submit market buy order for 1 share (adjust quantity as needed)
                             api.submit_order(
                                 symbol=ticker,
                                 qty=1,
@@ -202,8 +202,11 @@ def trading_loop():
                                 f"EMA9 crossed above EMA50.\n"
                                 f"<b>BUY order executed (Paper).</b>"
                             )
-                            send_telegram_alert(alert_msg)
-                            loop_status.success(alert_msg.replace("<b>", "").replace("</b>", ""))
+                            success, err = send_telegram_alert(alert_msg)
+                            if not success:
+                                loop_status.warning(f"Trade executed but Telegram failed: {err}")
+                            else:
+                                loop_status.success(alert_msg.replace("<b>", "").replace("</b>", ""))
                         except Exception as e:
                             loop_status.error(f"Buy order failed: {e}")
                     else:
@@ -229,14 +232,16 @@ def trading_loop():
                                 f"EMA9 crossed below EMA50.\n"
                                 f"<b>SELL order executed (Paper).</b>"
                             )
-                            send_telegram_alert(alert_msg)
-                            loop_status.success(alert_msg.replace("<b>", "").replace("</b>", ""))
+                            success, err = send_telegram_alert(alert_msg)
+                            if not success:
+                                loop_status.warning(f"Trade executed but Telegram failed: {err}")
+                            else:
+                                loop_status.success(alert_msg.replace("<b>", "").replace("</b>", ""))
                         except Exception as e:
                             loop_status.error(f"Sell order failed: {e}")
                     else:
                         loop_status.info(f"Bearish crossover detected but no position to sell.")
                 else:
-                    # No crossover, just update status
                     loop_status.info(f"Monitoring {ticker} | Price: ${current_price:.2f} | EMA9: {ema9:.2f} | EMA50: {ema50:.2f}")
             else:
                 loop_status.info(f"Initialising... Price: ${current_price:.2f} | EMA9: {ema9:.2f} | EMA50: {ema50:.2f}")
@@ -244,6 +249,9 @@ def trading_loop():
             # Update previous values
             prev_ema9 = ema9
             prev_ema50 = ema50
+
+            # Update main status message
+            st.session_state.status_message = f"✅ Bot running for {ticker} | Last check: {datetime.now().strftime('%H:%M:%S')}"
 
             # ----- 5. Wait 1 minute before next iteration -----
             for _ in range(60):
@@ -253,6 +261,7 @@ def trading_loop():
 
         except Exception as e:
             loop_status.error(f"Loop error: {e}")
+            st.session_state.status_message = f"⚠️ Error: {e} – will retry in 1 min"
             time.sleep(60)
 
     # Clean up when loop ends
@@ -278,15 +287,17 @@ if start_btn and not st.session_state.bot_running:
         st.session_state.thread = threading.Thread(target=trading_loop, daemon=True)
         st.session_state.thread.start()
         st.success("Bot started! Check the status area below.")
-        # Send a startup notification
-        send_telegram_alert(f"🤖 Trading bot started for {ticker} (Paper trading).")
+        # Send a startup notification (non‑blocking)
+        success, err = send_telegram_alert(f"🤖 Trading bot started for {ticker} (Paper trading).")
+        if not success:
+            st.warning(f"Telegram notification failed: {err}")
 
 if stop_btn and st.session_state.bot_running:
     st.session_state.bot_running = False
     if st.session_state.thread is not None:
         st.session_state.thread.join(timeout=5)
     st.session_state.status_message = "⏹️ Bot stopped by user."
-    send_telegram_alert(f"🛑 Trading bot stopped manually for {ticker}.")
+    success, _ = send_telegram_alert(f"🛑 Trading bot stopped manually for {ticker}.")
     st.info("Bot stopped.")
 
 # ------------------------------
@@ -296,7 +307,10 @@ st.header("📊 Live Market Dashboard")
 
 # Status message (updates from the bot thread)
 status_placeholder = st.empty()
-status_placeholder.info(st.session_state.status_message)
+if st.session_state.bot_running:
+    status_placeholder.success(st.session_state.status_message)
+else:
+    status_placeholder.info(st.session_state.status_message)
 
 # Metrics row
 col1, col2, col3 = st.columns(3)
