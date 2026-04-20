@@ -1,6 +1,6 @@
 """
-Streamlit Trading Bot – EMA Crossover Strategy
-Modern UI with theme toggle and hidden Streamlit branding.
+TraderMoney – EMA Crossover Trading Bot
+Premium SaaS‑style UI with dark mode, live dashboard, and step‑by‑step setup guide.
 """
 
 import streamlit as st
@@ -13,11 +13,11 @@ from datetime import datetime, timedelta
 import alpaca_trade_api as tradeapi
 
 # ------------------------------
-# Page Configuration
+# Page Configuration (Full screen, Dark default)
 # ------------------------------
 st.set_page_config(
-    page_title="EMA Crossover Bot",
-    page_icon="📈",
+    page_title="TraderMoney",
+    page_icon="💸",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
@@ -28,7 +28,7 @@ st.set_page_config(
 )
 
 # ------------------------------
-# Session State (includes theme)
+# Session State Initialisation
 # ------------------------------
 if "bot_running" not in st.session_state:
     st.session_state.bot_running = False
@@ -49,36 +49,39 @@ if "chart_data" not in st.session_state:
 if "loop_log" not in st.session_state:
     st.session_state.loop_log = "Waiting to start..."
 if "theme" not in st.session_state:
-    st.session_state.theme = "Light"
+    st.session_state.theme = "Dark"   # Default to Dark
 
 # ------------------------------
-# Dynamic Theme + Hide Streamlit UI
+# Custom CSS – Dark Mode + Hide Streamlit UI
 # ------------------------------
 def inject_theme_css():
+    """Inject premium dark theme CSS and hide Streamlit default elements."""
     if st.session_state.theme == "Dark":
-        bg_color = "#0e1117"
-        sidebar_bg = "#1e2530"
-        card_bg = "#262f3d"
-        text_color = "#fafafa"
-        border_color = "#3a4454"
-        metric_bg = "#1e2530"
-        tab_bg = "#1e2530"
-        tab_selected_bg = "#0e1117"
-        chart_bg = "#1e2530"
-    else:
+        bg_color = "#0a0c0f"
+        sidebar_bg = "#14171c"
+        card_bg = "#1c2028"
+        text_color = "#e0e4e9"
+        border_color = "#2a2f38"
+        metric_bg = "#1c2028"
+        tab_bg = "#1c2028"
+        tab_selected_bg = "#0a0c0f"
+        chart_bg = "#1c2028"
+        accent_color = "#00b894"
+    else:   # Light mode (optional)
         bg_color = "#f5f7fa"
         sidebar_bg = "#ffffff"
         card_bg = "#ffffff"
-        text_color = "#262730"
-        border_color = "#eaedf0"
+        text_color = "#1e1e1e"
+        border_color = "#e0e0e0"
         metric_bg = "#ffffff"
-        tab_bg = "#f1f3f5"
+        tab_bg = "#f0f2f6"
         tab_selected_bg = "#ffffff"
         chart_bg = "#ffffff"
+        accent_color = "#0068c9"
 
     st.markdown(f"""
     <style>
-        /* Hide Streamlit default menu, footer, and deploy button */
+        /* Hide Streamlit branding */
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         header {{visibility: hidden;}}
@@ -87,16 +90,21 @@ def inject_theme_css():
         div[data-testid="stDecoration"] {{display: none !important;}}
         div[data-testid="stStatusWidget"] {{display: none !important;}}
 
-        /* Overall background */
+        /* Global background */
         .stApp {{
             background-color: {bg_color};
             color: {text_color};
         }}
 
-        /* Sidebar styling */
+        /* Sidebar */
         section[data-testid="stSidebar"] {{
             background-color: {sidebar_bg};
             border-right: 1px solid {border_color};
+        }}
+
+        /* Sidebar text */
+        section[data-testid="stSidebar"] .stMarkdown, section[data-testid="stSidebar"] label {{
+            color: {text_color} !important;
         }}
 
         /* Metric cards */
@@ -104,8 +112,18 @@ def inject_theme_css():
             background-color: {metric_bg};
             border-radius: 12px;
             padding: 16px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             border: 1px solid {border_color};
+        }}
+
+        /* Metric labels and values */
+        div[data-testid="stMetric"] label {{
+            color: #9aa0ab !important;
+            font-weight: 500;
+        }}
+        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {{
+            color: {text_color} !important;
+            font-size: 2rem !important;
         }}
 
         /* Buttons */
@@ -113,6 +131,12 @@ def inject_theme_css():
             border-radius: 8px;
             font-weight: 500;
             transition: all 0.2s;
+            background-color: {accent_color};
+            color: white;
+            border: none;
+        }}
+        .stButton button:hover {{
+            opacity: 0.9;
         }}
 
         /* Chart container */
@@ -120,7 +144,7 @@ def inject_theme_css():
             background-color: {chart_bg};
             border-radius: 12px;
             padding: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             border: 1px solid {border_color};
         }}
 
@@ -129,21 +153,23 @@ def inject_theme_css():
             font-weight: 600;
             background-color: {tab_bg};
             border-radius: 8px;
+            color: {text_color} !important;
         }}
 
         /* Tabs styling */
         .stTabs [data-baseweb="tab-list"] {{
-            gap: 8px;
+            gap: 12px;
         }}
         .stTabs [data-baseweb="tab"] {{
             border-radius: 8px 8px 0 0;
-            padding: 8px 16px;
+            padding: 10px 20px;
             background-color: {tab_bg};
             color: {text_color};
+            font-weight: 500;
         }}
         .stTabs [aria-selected="true"] {{
             background-color: {tab_selected_bg} !important;
-            border-bottom: 2px solid #0068c9;
+            border-bottom: 3px solid {accent_color};
         }}
 
         /* Input fields */
@@ -151,6 +177,28 @@ def inject_theme_css():
             background-color: {card_bg} !important;
             color: {text_color} !important;
             border-color: {border_color} !important;
+            border-radius: 8px;
+        }}
+
+        /* Divider */
+        hr {{
+            border-color: {border_color};
+        }}
+
+        /* Headers */
+        h1, h2, h3, h4, h5, h6 {{
+            color: {text_color} !important;
+        }}
+
+        /* Custom title styling */
+        .tradermoney-title {{
+            font-size: 3rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00b894, #00cec9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
         }}
     </style>
     """, unsafe_allow_html=True)
@@ -158,41 +206,42 @@ def inject_theme_css():
 inject_theme_css()
 
 # ------------------------------
-# Sidebar – Configuration + Theme
+# Sidebar – API Configuration
 # ------------------------------
 with st.sidebar:
-    st.title("⚙️ Bot Config")
+    st.markdown("<h2 style='text-align: center;'>⚙️ Configuration</h2>", unsafe_allow_html=True)
+    st.divider()
 
-    theme = st.radio(
-        "🎨 Theme",
-        ["Light", "Dark"],
-        horizontal=True,
-        key="theme_radio",
-        index=0 if st.session_state.theme == "Light" else 1
-    )
+    # Optional theme toggle (kept for flexibility)
+    theme = st.selectbox("🎨 Theme", ["Dark", "Light"], index=0 if st.session_state.theme=="Dark" else 1)
     if theme != st.session_state.theme:
         st.session_state.theme = theme
         st.rerun()
 
-    st.markdown("---")
+    st.divider()
 
     with st.expander("🔐 Alpaca Paper Trading", expanded=True):
-        alpaca_api_key = st.text_input("API Key", type="password", placeholder="PK...")
-        alpaca_secret_key = st.text_input("Secret Key", type="password", placeholder="...")
+        alpaca_api_key = st.text_input("API Key", type="password", placeholder="PK...", help="From Alpaca Paper Dashboard")
+        alpaca_secret_key = st.text_input("Secret Key", type="password", placeholder="...", help="Keep this secret")
+
+    st.divider()
 
     with st.expander("📱 Telegram Alerts", expanded=True):
-        telegram_token = st.text_input("Bot Token", type="password", placeholder="123456:ABC...")
-        telegram_chat_id = st.text_input("Chat ID", placeholder="123456789")
+        telegram_token = st.text_input("Bot Token", type="password", placeholder="123456:ABC...", help="From @BotFather")
+        telegram_chat_id = st.text_input("Chat ID", placeholder="123456789", help="Your numeric Chat ID")
 
-    ticker = st.text_input("📊 Stock Ticker", value="AAPL").upper().strip()
+    st.divider()
 
-    st.markdown("---")
+    ticker = st.text_input("📊 Stock Ticker", value="AAPL", help="Yahoo Finance symbol (e.g., AAPL, TSLA)").upper().strip()
+
+    st.divider()
+
     col1, col2 = st.columns(2)
     start_btn = col1.button("▶️ Start Bot", use_container_width=True, disabled=st.session_state.bot_running)
     stop_btn = col2.button("⏹️ Stop Bot", use_container_width=True, disabled=not st.session_state.bot_running)
 
-    st.markdown("---")
-    st.caption("💡 Bot runs in background. Keep this tab open.")
+    st.divider()
+    st.caption("💡 Keep this tab open for continuous operation.")
 
 # ------------------------------
 # Helper: Fetch Market Status
@@ -207,6 +256,7 @@ def fetch_market_status(api_key, secret_key):
     except:
         return False, None, None
 
+# Update market status immediately (even before bot starts)
 if not st.session_state.bot_running:
     is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
     st.session_state.market_status = "🟢 Open" if is_open else "🔴 Closed" if alpaca_api_key else "Unknown"
@@ -218,7 +268,10 @@ def send_telegram_alert(message: str):
     payload = {"chat_id": telegram_chat_id, "text": message, "parse_mode": "HTML"}
     try:
         resp = requests.post(url, json=payload, timeout=10)
-        return (resp.status_code == 200), resp.json().get("description", "Unknown error")
+        if resp.status_code == 200:
+            return True, None
+        else:
+            return False, resp.json().get("description", "Unknown error")
     except Exception as e:
         return False, str(e)
 
@@ -351,11 +404,15 @@ if stop_btn and st.session_state.bot_running:
     st.info("Bot stopped.")
 
 # ------------------------------
-# Main UI with Tabs
+# Main UI – TraderMoney Branding + Tabs
 # ------------------------------
+st.markdown("<div class='tradermoney-title'>💸 TraderMoney</div>", unsafe_allow_html=True)
+st.caption("Automated EMA Crossover Trading – Alpaca Paper + Telegram Alerts")
+
 tab1, tab2 = st.tabs(["📊 Dashboard", "⚙️ Setup Guide"])
 
 with tab1:
+    # Status row
     col_status, col_market = st.columns([3, 1])
     with col_status:
         if "❌" in st.session_state.status_message:
@@ -372,6 +429,7 @@ with tab1:
         else:
             st.info("Market: Checking...")
 
+    # Metrics Cards
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("💵 Latest Price", f"${st.session_state.latest_price}" if st.session_state.latest_price else "—")
@@ -380,20 +438,22 @@ with tab1:
     with col3:
         st.metric("📉 EMA 50", st.session_state.ema_50 if st.session_state.ema_50 else "—")
 
+    # Chart
     st.subheader(f"📊 {ticker} – Price & EMAs")
     if not st.session_state.chart_data.empty:
         st.line_chart(st.session_state.chart_data)
     else:
         st.info("Waiting for market data...")
 
+    # Live Log
     st.caption("📋 Live Log")
     st.code(st.session_state.loop_log, language="text")
 
-    st.markdown("---")
+    st.divider()
     st.caption("⚙️ Bot checks every minute. Trades only when market is open.")
 
 with tab2:
-    st.header("📘 How to Set Up Your Trading Bot")
+    st.header("📘 How to Set Up TraderMoney")
     st.markdown("Follow these three steps to get your API credentials. You only need to do this once.")
 
     col_a, col_b, col_c = st.columns(3)
@@ -428,18 +488,19 @@ with tab2:
         """)
         st.success("✅ That's it! Enter all three in the sidebar and click **Start Bot**.")
 
-    st.markdown("---")
-    st.subheader("💡 Tips for Running the Bot")
-    st.markdown("""
-    - **Keep the browser tab open** – the bot runs in the background as long as this Streamlit app is active.
+    st.divider()
+    st.subheader("💡 Important – Keep the Bot Running")
+    st.warning("""
+    ⚠️ **Do not close this browser tab!** The bot runs inside this Streamlit app.
+    - If you close the tab, the bot stops.
+    - To run 24/7, deploy on a cloud server (e.g., Streamlit Community Cloud with a paid plan) or use a VPS.
     - The bot checks for EMA crossovers **every minute**.
-    - Trades are only submitted when the market is open (🟢 Open). You'll see a warning otherwise.
+    - Trades are only submitted when the market is open (🟢 Open).
     - All orders go to Alpaca **Paper Trading** – no real money is used.
-    - If you close the tab, the bot stops. To run 24/7, deploy on a cloud server or use Streamlit Community Cloud with a paid plan.
     """)
 
 # ------------------------------
-# Auto‑refresh for Live Updates
+# Auto‑refresh for Live Updates (Non‑blocking)
 # ------------------------------
 if st.session_state.bot_running:
     time.sleep(5)
