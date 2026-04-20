@@ -1,6 +1,6 @@
 """
 Streamlit Trading Bot – EMA Crossover Strategy
-Modern, logo‑free UI with live dashboard and setup guide.
+Modern, logo‑free UI with live dashboard, setup guide, and theme toggle.
 """
 
 import streamlit as st
@@ -23,81 +23,7 @@ st.set_page_config(
 )
 
 # ------------------------------
-# Custom CSS – Modern, No White Overload
-# ------------------------------
-st.markdown("""
-<style>
-    /* Overall background */
-    .stApp {
-        background-color: #f5f7fa;
-    }
-
-    /* Sidebar styling */
-    section[data-testid="stSidebar"] {
-        background-color: #ffffff;
-        border-right: 1px solid #e0e4e8;
-    }
-
-    /* Metric cards */
-    div[data-testid="stMetric"] {
-        background-color: white;
-        border-radius: 12px;
-        padding: 16px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-        border: 1px solid #eaedf0;
-    }
-
-    /* Buttons */
-    .stButton button {
-        border-radius: 8px;
-        font-weight: 500;
-        transition: all 0.2s;
-    }
-
-    /* Status boxes */
-    .element-container:has(div[data-testid="stAlert"]) {
-        border-radius: 10px;
-    }
-
-    /* Chart container */
-    div[data-testid="stArrowVegaLiteChart"] {
-        background-color: white;
-        border-radius: 12px;
-        padding: 10px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-        border: 1px solid #eaedf0;
-    }
-
-    /* Expander headers */
-    .streamlit-expanderHeader {
-        font-weight: 600;
-        background-color: #f9fafb;
-        border-radius: 8px;
-    }
-
-    /* Reduce top padding */
-    .block-container {
-        padding-top: 2rem;
-    }
-
-    /* Tabs styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px 8px 0 0;
-        padding: 8px 16px;
-        background-color: #f1f3f5;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: white !important;
-        border-bottom: 2px solid #0068c9;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# ------------------------------
-# Session State Initialisation
+# Session State Initialisation (including theme)
 # ------------------------------
 if "bot_running" not in st.session_state:
     st.session_state.bot_running = False
@@ -117,12 +43,142 @@ if "chart_data" not in st.session_state:
     st.session_state.chart_data = pd.DataFrame(columns=["Close", "EMA_9", "EMA_50"])
 if "loop_log" not in st.session_state:
     st.session_state.loop_log = "Waiting to start..."
+if "theme" not in st.session_state:
+    st.session_state.theme = "Light"   # Default theme
 
 # ------------------------------
-# Sidebar – API Configuration (Logo Removed)
+# Dynamic Theme CSS (Light / Dark)
+# ------------------------------
+def inject_theme_css():
+    """Inject custom CSS based on the selected theme."""
+    if st.session_state.theme == "Dark":
+        bg_color = "#0e1117"
+        sidebar_bg = "#1e2530"
+        card_bg = "#262f3d"
+        text_color = "#fafafa"
+        border_color = "#3a4454"
+        metric_bg = "#1e2530"
+        tab_bg = "#1e2530"
+        tab_selected_bg = "#0e1117"
+        chart_bg = "#1e2530"
+    else:
+        bg_color = "#f5f7fa"
+        sidebar_bg = "#ffffff"
+        card_bg = "#ffffff"
+        text_color = "#262730"
+        border_color = "#eaedf0"
+        metric_bg = "#ffffff"
+        tab_bg = "#f1f3f5"
+        tab_selected_bg = "#ffffff"
+        chart_bg = "#ffffff"
+
+    st.markdown(f"""
+    <style>
+        /* Overall background */
+        .stApp {{
+            background-color: {bg_color};
+            color: {text_color};
+        }}
+
+        /* Sidebar styling */
+        section[data-testid="stSidebar"] {{
+            background-color: {sidebar_bg};
+            border-right: 1px solid {border_color};
+        }}
+
+        /* Metric cards */
+        div[data-testid="stMetric"] {{
+            background-color: {metric_bg};
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            border: 1px solid {border_color};
+        }}
+
+        /* Buttons */
+        .stButton button {{
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }}
+
+        /* Status boxes */
+        .element-container:has(div[data-testid="stAlert"]) {{
+            border-radius: 10px;
+        }}
+
+        /* Chart container */
+        div[data-testid="stArrowVegaLiteChart"] {{
+            background-color: {chart_bg};
+            border-radius: 12px;
+            padding: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            border: 1px solid {border_color};
+        }}
+
+        /* Expander headers */
+        .streamlit-expanderHeader {{
+            font-weight: 600;
+            background-color: {tab_bg};
+            border-radius: 8px;
+        }}
+
+        /* Reduce top padding */
+        .block-container {{
+            padding-top: 2rem;
+        }}
+
+        /* Tabs styling */
+        .stTabs [data-baseweb="tab-list"] {{
+            gap: 8px;
+        }}
+        .stTabs [data-baseweb="tab"] {{
+            border-radius: 8px 8px 0 0;
+            padding: 8px 16px;
+            background-color: {tab_bg};
+            color: {text_color};
+        }}
+        .stTabs [aria-selected="true"] {{
+            background-color: {tab_selected_bg} !important;
+            border-bottom: 2px solid #0068c9;
+        }}
+
+        /* Input fields */
+        .stTextInput input, .stTextInput textarea {{
+            background-color: {card_bg} !important;
+            color: {text_color} !important;
+            border-color: {border_color} !important;
+        }}
+
+        /* Radio buttons (theme toggle) */
+        div[data-testid="stRadio"] label {{
+            color: {text_color} !important;
+        }}
+    </style>
+    """, unsafe_allow_html=True)
+
+# Inject the theme CSS
+inject_theme_css()
+
+# ------------------------------
+# Sidebar – API Configuration + Theme Toggle
 # ------------------------------
 with st.sidebar:
     st.title("⚙️ Bot Config")
+
+    # Theme toggle
+    theme = st.radio(
+        "🎨 Theme",
+        ["Light", "Dark"],
+        horizontal=True,
+        key="theme_radio",
+        index=0 if st.session_state.theme == "Light" else 1
+    )
+    if theme != st.session_state.theme:
+        st.session_state.theme = theme
+        st.rerun()
+
+    st.markdown("---")
 
     with st.expander("🔐 Alpaca Paper Trading", expanded=True):
         alpaca_api_key = st.text_input(
@@ -166,10 +222,9 @@ with st.sidebar:
     st.caption("💡 Bot runs in background. Keep this tab open.")
 
 # ------------------------------
-# Helper: Fetch Market Status (Used on Load and in Loop)
+# Helper: Fetch Market Status
 # ------------------------------
 def fetch_market_status(api_key, secret_key):
-    """Return (is_open, next_open, next_close) or (False, None, None) on failure."""
     if not api_key or not secret_key:
         return False, None, None
     try:
@@ -184,7 +239,7 @@ def fetch_market_status(api_key, secret_key):
     except:
         return False, None, None
 
-# Try to update market status immediately (even before bot starts)
+# Update market status immediately (even before bot starts)
 if not st.session_state.bot_running:
     is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
     st.session_state.market_status = "🟢 Open" if is_open else "🔴 Closed" if alpaca_api_key else "Unknown"
@@ -210,7 +265,6 @@ def send_telegram_alert(message: str):
 # Trading Loop (Background Thread)
 # ------------------------------
 def trading_loop():
-    # Validate Alpaca connection
     if not alpaca_api_key or not alpaca_secret_key:
         st.session_state.status_message = "❌ Alpaca API keys missing"
         st.session_state.bot_running = False
@@ -232,7 +286,6 @@ def trading_loop():
         st.session_state.bot_running = False
         return
 
-    # Initial market check
     is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
     market_text = "🟢 Open" if is_open else "🔴 Closed"
     st.session_state.market_status = market_text
@@ -243,12 +296,10 @@ def trading_loop():
 
     while st.session_state.bot_running:
         try:
-            # Market clock update
             is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
             market_text = "🟢 Open" if is_open else "🔴 Closed"
             st.session_state.market_status = market_text
 
-            # Fetch data (Yahoo Finance works even when market closed)
             end = datetime.now()
             start = end - timedelta(days=60)
             data = yf.download(ticker, start=start, end=end, progress=False)
@@ -265,15 +316,13 @@ def trading_loop():
             ema9 = latest['EMA_9']
             ema50 = latest['EMA_50']
 
-            # Update UI values
             st.session_state.latest_price = round(price, 2)
             st.session_state.ema_9 = round(ema9, 2)
             st.session_state.ema_50 = round(ema50, 2)
             st.session_state.chart_data = data[['Close', 'EMA_9', 'EMA_50']].tail(200)
 
-            # Crossover detection
             if prev_ema9 and prev_ema50:
-                if prev_ema9 <= prev_ema50 and ema9 > ema50:   # Bullish
+                if prev_ema9 <= prev_ema50 and ema9 > ema50:
                     st.session_state.loop_log = "🚀 Bullish crossover detected"
                     if is_open and position != "long":
                         try:
@@ -286,7 +335,7 @@ def trading_loop():
                             st.session_state.loop_log = f"❌ Buy failed: {e}"
                     elif not is_open:
                         st.session_state.loop_log = "📴 Market closed – crossover ignored"
-                elif prev_ema9 >= prev_ema50 and ema9 < ema50:  # Bearish
+                elif prev_ema9 >= prev_ema50 and ema9 < ema50:
                     st.session_state.loop_log = "🔻 Bearish crossover detected"
                     if is_open and position == "long":
                         try:
@@ -307,7 +356,6 @@ def trading_loop():
             prev_ema9, prev_ema50 = ema9, ema50
             st.session_state.status_message = f"✅ Running – {ticker} | Market {market_text} | {datetime.now().strftime('%H:%M:%S')}"
 
-            # Wait 60 seconds, but check for stop signal every second
             for _ in range(60):
                 if not st.session_state.bot_running:
                     break
@@ -317,7 +365,6 @@ def trading_loop():
             st.session_state.loop_log = f"⚠️ Loop error: {e}"
             time.sleep(60)
 
-    # Cleanup
     st.session_state.status_message = "⏹️ Bot stopped"
     st.session_state.bot_running = False
     st.session_state.thread = None
@@ -353,7 +400,6 @@ if stop_btn and st.session_state.bot_running:
 tab1, tab2 = st.tabs(["📊 Dashboard", "⚙️ Setup Guide"])
 
 with tab1:
-    # Header with status
     col_status, col_market = st.columns([3, 1])
     with col_status:
         if "❌" in st.session_state.status_message:
@@ -370,7 +416,6 @@ with tab1:
         else:
             st.info("Market: Checking...")
 
-    # Metrics Row (3 cards)
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("💵 Latest Price", f"${st.session_state.latest_price}" if st.session_state.latest_price else "—")
@@ -379,18 +424,15 @@ with tab1:
     with col3:
         st.metric("📉 EMA 50", st.session_state.ema_50 if st.session_state.ema_50 else "—")
 
-    # Chart
     st.subheader(f"📊 {ticker} – Price & EMAs")
     if not st.session_state.chart_data.empty:
         st.line_chart(st.session_state.chart_data)
     else:
         st.info("Waiting for market data...")
 
-    # Live Log
     st.caption("📋 Live Log")
     st.code(st.session_state.loop_log, language="text")
 
-    # Footer note
     st.markdown("---")
     st.caption("⚙️ Bot checks every minute. Trades only when market is open.")
 
@@ -441,7 +483,7 @@ with tab2:
     """)
 
 # ------------------------------
-# Auto‑refresh for Live Updates (fixes freezing issue)
+# Auto‑refresh for Live Updates
 # ------------------------------
 if st.session_state.bot_running:
     time.sleep(5)
