@@ -25,6 +25,8 @@ if "thread" not in st.session_state:
     st.session_state.thread = None
 if "status_message" not in st.session_state:
     st.session_state.status_message = "Bot is idle."
+if "market_status" not in st.session_state:
+    st.session_state.market_status = "Unknown"
 if "latest_price" not in st.session_state:
     st.session_state.latest_price = None
 if "ema_9" not in st.session_state:
@@ -67,10 +69,24 @@ def send_telegram_alert(message: str):
         return False, str(e)
 
 # ------------------------------
+# Market Status Checker
+# ------------------------------
+def get_market_status(api):
+    """Return (is_open, next_open, next_close) using Alpaca clock."""
+    try:
+        clock = api.get_clock()
+        is_open = clock.is_open
+        next_open = clock.next_open
+        next_close = clock.next_close
+        return is_open, next_open, next_close
+    except Exception:
+        return False, None, None
+
+# ------------------------------
 # Trading Loop (Background Thread)
 # ------------------------------
 def trading_loop():
-    # --- Validate Alpaca credentials FIRST ---
+    # --- Validate Alpaca credentials ---
     if not alpaca_api_key or not alpaca_secret_key:
         st.session_state.status_message = "❌ Alpaca API keys missing. Please enter them in the sidebar."
         st.session_state.bot_running = False
@@ -93,7 +109,11 @@ def trading_loop():
         st.session_state.bot_running = False
         return
 
-    st.session_state.status_message = f"✅ Bot running for {ticker} – checking every minute."
+    # Initial market check
+    is_open, next_open, next_close = get_market_status(api)
+    st.session_state.market_status = "🟢 Open" if is_open else "🔴 Closed"
+
+    st.session_state.status_message = f"✅ Bot running for {ticker} | Market {st.session_state.market_status}"
 
     position = None
     prev_ema9 = None
@@ -102,6 +122,12 @@ def trading_loop():
 
     while st.session_state.bot_running:
         try:
+            # Update market status every iteration
+            is_open, next_open, next_close = get_market_status(api)
+            market_text = "🟢 Open" if is_open else "🔴 Closed"
+            st.session_state.market_status = market_text
+
+            # Fetch price data (always fetch, even when closed)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=60)
             data = yf.download(ticker, start=start_date, end=end_date, progress=False)
@@ -124,48 +150,56 @@ def trading_loop():
             st.session_state.ema_50 = round(ema50, 2)
             st.session_state.chart_data = data[['Close', 'EMA_9', 'EMA_50']].tail(200)
 
+            # Crossover detection (only trade if market is open)
             if prev_ema9 is not None and prev_ema50 is not None:
                 if prev_ema9 <= prev_ema50 and ema9 > ema50:
-                    if position != "long":
-                        try:
-                            api.submit_order(symbol=ticker, qty=1, side="buy", type="market", time_in_force="day")
-                            position = "long"
-                            alert_msg = (f"<b>🚀 BULLISH CROSSOVER</b>\nTicker: {ticker}\nPrice: ${current_price:.2f}\n"
-                                         f"EMA9 crossed above EMA50.\n<b>BUY order executed (Paper).</b>")
-                            success, err = send_telegram_alert(alert_msg)
-                            if not success:
-                                loop_status.warning(f"Trade executed but Telegram failed: {err}")
-                            else:
-                                loop_status.success(alert_msg.replace("<b>", "").replace("</b>", ""))
-                        except Exception as e:
-                            loop_status.error(f"Buy order failed: {e}")
+                    if is_open:
+                        if position != "long":
+                            try:
+                                api.submit_order(symbol=ticker, qty=1, side="buy", type="market", time_in_force="day")
+                                position = "long"
+                                alert_msg = (f"<b>🚀 BULLISH CROSSOVER</b>\nTicker: {ticker}\nPrice: ${current_price:.2f}\n"
+                                             f"EMA9 crossed above EMA50.\n<b>BUY order executed (Paper).</b>")
+                                success, err = send_telegram_alert(alert_msg)
+                                if not success:
+                                    loop_status.warning(f"Trade executed but Telegram failed: {err}")
+                                else:
+                                    loop_status.success(alert_msg.replace("<b>", "").replace("</b>", ""))
+                            except Exception as e:
+                                loop_status.error(f"Buy order failed: {e}")
+                        else:
+                            loop_status.info("Bullish crossover but already long.")
                     else:
-                        loop_status.info("Bullish crossover but already long.")
+                        loop_status.info(f"📴 Market Closed – Bullish crossover detected but no order placed.")
                 elif prev_ema9 >= prev_ema50 and ema9 < ema50:
-                    if position == "long":
-                        try:
-                            api.submit_order(symbol=ticker, qty=1, side="sell", type="market", time_in_force="day")
-                            position = None
-                            alert_msg = (f"<b>🔻 BEARISH CROSSOVER</b>\nTicker: {ticker}\nPrice: ${current_price:.2f}\n"
-                                         f"EMA9 crossed below EMA50.\n<b>SELL order executed (Paper).</b>")
-                            success, err = send_telegram_alert(alert_msg)
-                            if not success:
-                                loop_status.warning(f"Trade executed but Telegram failed: {err}")
-                            else:
-                                loop_status.success(alert_msg.replace("<b>", "").replace("</b>", ""))
-                        except Exception as e:
-                            loop_status.error(f"Sell order failed: {e}")
+                    if is_open:
+                        if position == "long":
+                            try:
+                                api.submit_order(symbol=ticker, qty=1, side="sell", type="market", time_in_force="day")
+                                position = None
+                                alert_msg = (f"<b>🔻 BEARISH CROSSOVER</b>\nTicker: {ticker}\nPrice: ${current_price:.2f}\n"
+                                             f"EMA9 crossed below EMA50.\n<b>SELL order executed (Paper).</b>")
+                                success, err = send_telegram_alert(alert_msg)
+                                if not success:
+                                    loop_status.warning(f"Trade executed but Telegram failed: {err}")
+                                else:
+                                    loop_status.success(alert_msg.replace("<b>", "").replace("</b>", ""))
+                            except Exception as e:
+                                loop_status.error(f"Sell order failed: {e}")
+                        else:
+                            loop_status.info("Bearish crossover but no position.")
                     else:
-                        loop_status.info("Bearish crossover but no position.")
+                        loop_status.info(f"📴 Market Closed – Bearish crossover detected but no order placed.")
                 else:
-                    loop_status.info(f"Monitoring {ticker} | Price: ${current_price:.2f} | EMA9: {ema9:.2f} | EMA50: {ema50:.2f}")
+                    loop_status.info(f"Monitoring {ticker} | Price: ${current_price:.2f} | EMA9: {ema9:.2f} | EMA50: {ema50:.2f} | Market {market_text}")
             else:
-                loop_status.info(f"Initialising... Price: ${current_price:.2f} | EMA9: {ema9:.2f} | EMA50: {ema50:.2f}")
+                loop_status.info(f"Initialising... Price: ${current_price:.2f} | EMA9: {ema9:.2f} | EMA50: {ema50:.2f} | Market {market_text}")
 
             prev_ema9 = ema9
             prev_ema50 = ema50
-            st.session_state.status_message = f"✅ Bot running for {ticker} | Last check: {datetime.now().strftime('%H:%M:%S')}"
+            st.session_state.status_message = f"✅ Bot running for {ticker} | Market {market_text} | Last check: {datetime.now().strftime('%H:%M:%S')}"
 
+            # Wait 1 minute
             for _ in range(60):
                 if not st.session_state.bot_running:
                     break
@@ -194,7 +228,6 @@ if start_btn and not st.session_state.bot_running:
         st.session_state.thread = threading.Thread(target=trading_loop, daemon=True)
         st.session_state.thread.start()
         st.success("Bot started! Check the status below.")
-        # Optional startup Telegram notification (non‑blocking)
         send_telegram_alert(f"🤖 Trading bot started for {ticker} (Paper trading).")
 
 if stop_btn and st.session_state.bot_running:
@@ -210,21 +243,31 @@ if stop_btn and st.session_state.bot_running:
 # ------------------------------
 st.header("📊 Live Market Dashboard")
 
-# Show the current status message (this will update when the bot thread runs)
-status_placeholder = st.empty()
-if st.session_state.bot_running:
-    status_placeholder.success(st.session_state.status_message)
-else:
-    if "❌" in st.session_state.status_message:
-        status_placeholder.error(st.session_state.status_message)
+# Market status indicator
+market_col1, market_col2 = st.columns([1, 3])
+with market_col1:
+    if st.session_state.market_status == "🟢 Open":
+        st.success(f"Market: {st.session_state.market_status}")
+    elif st.session_state.market_status == "🔴 Closed":
+        st.warning(f"Market: {st.session_state.market_status}")
     else:
-        status_placeholder.info(st.session_state.status_message)
+        st.info("Market: Checking...")
+with market_col2:
+    if st.session_state.bot_running:
+        st.success(st.session_state.status_message)
+    else:
+        if "❌" in st.session_state.status_message:
+            st.error(st.session_state.status_message)
+        else:
+            st.info(st.session_state.status_message)
 
+# Metrics
 col1, col2, col3 = st.columns(3)
 col1.metric("Latest Price", f"${st.session_state.latest_price}" if st.session_state.latest_price else "N/A")
 col2.metric("EMA 9", st.session_state.ema_9 if st.session_state.ema_9 else "N/A")
 col3.metric("EMA 50", st.session_state.ema_50 if st.session_state.ema_50 else "N/A")
 
+# Chart
 st.subheader(f"{ticker} Price & EMAs")
 chart_placeholder = st.empty()
 if not st.session_state.chart_data.empty:
