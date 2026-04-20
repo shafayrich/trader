@@ -1,7 +1,6 @@
 """
 Streamlit Trading Bot – EMA Crossover Strategy
-Modern UI with dashboard + setup guide tabs.
-Background thread handles trading; UI auto‑refreshes without freezing.
+Modern, logo‑free UI with live dashboard and setup guide.
 """
 
 import streamlit as st
@@ -14,7 +13,7 @@ from datetime import datetime, timedelta
 import alpaca_trade_api as tradeapi
 
 # ------------------------------
-# Page Configuration (Modern, Wide)
+# Page Configuration (Wide, Clean)
 # ------------------------------
 st.set_page_config(
     page_title="EMA Crossover Bot",
@@ -24,25 +23,75 @@ st.set_page_config(
 )
 
 # ------------------------------
-# Custom CSS for a cleaner look
+# Custom CSS – Modern, No White Overload
 # ------------------------------
 st.markdown("""
 <style>
-    .stMetric {
-        background-color: #f8f9fa;
-        border-radius: 10px;
-        padding: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    /* Overall background */
+    .stApp {
+        background-color: #f5f7fa;
     }
+
+    /* Sidebar styling */
+    section[data-testid="stSidebar"] {
+        background-color: #ffffff;
+        border-right: 1px solid #e0e4e8;
+    }
+
+    /* Metric cards */
+    div[data-testid="stMetric"] {
+        background-color: white;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        border: 1px solid #eaedf0;
+    }
+
+    /* Buttons */
     .stButton button {
-        width: 100%;
         border-radius: 8px;
         font-weight: 500;
+        transition: all 0.2s;
     }
-    .status-box {
-        padding: 1rem;
+
+    /* Status boxes */
+    .element-container:has(div[data-testid="stAlert"]) {
+        border-radius: 10px;
+    }
+
+    /* Chart container */
+    div[data-testid="stArrowVegaLiteChart"] {
+        background-color: white;
+        border-radius: 12px;
+        padding: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        border: 1px solid #eaedf0;
+    }
+
+    /* Expander headers */
+    .streamlit-expanderHeader {
+        font-weight: 600;
+        background-color: #f9fafb;
         border-radius: 8px;
-        margin-bottom: 1rem;
+    }
+
+    /* Reduce top padding */
+    .block-container {
+        padding-top: 2rem;
+    }
+
+    /* Tabs styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px 8px 0 0;
+        padding: 8px 16px;
+        background-color: #f1f3f5;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: white !important;
+        border-bottom: 2px solid #0068c9;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -70,10 +119,9 @@ if "loop_log" not in st.session_state:
     st.session_state.loop_log = "Waiting to start..."
 
 # ------------------------------
-# Sidebar – API Configuration
+# Sidebar – API Configuration (Logo Removed)
 # ------------------------------
 with st.sidebar:
-    st.image("https://streamlit.io/images/brand/streamlit-mark-color.png", width=50)
     st.title("⚙️ Bot Config")
 
     with st.expander("🔐 Alpaca Paper Trading", expanded=True):
@@ -118,10 +166,33 @@ with st.sidebar:
     st.caption("💡 Bot runs in background. Keep this tab open.")
 
 # ------------------------------
-# Helper Functions
+# Helper: Fetch Market Status (Used on Load and in Loop)
+# ------------------------------
+def fetch_market_status(api_key, secret_key):
+    """Return (is_open, next_open, next_close) or (False, None, None) on failure."""
+    if not api_key or not secret_key:
+        return False, None, None
+    try:
+        api = tradeapi.REST(
+            api_key,
+            secret_key,
+            base_url="https://paper-api.alpaca.markets",
+            api_version="v2"
+        )
+        clock = api.get_clock()
+        return clock.is_open, clock.next_open, clock.next_close
+    except:
+        return False, None, None
+
+# Try to update market status immediately (even before bot starts)
+if not st.session_state.bot_running:
+    is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
+    st.session_state.market_status = "🟢 Open" if is_open else "🔴 Closed" if alpaca_api_key else "Unknown"
+
+# ------------------------------
+# Telegram Alert Function
 # ------------------------------
 def send_telegram_alert(message: str):
-    """Send a message to Telegram. Returns (success, error_message)."""
     if not telegram_token or not telegram_chat_id:
         return False, "Missing credentials"
     url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
@@ -134,14 +205,6 @@ def send_telegram_alert(message: str):
             return False, resp.json().get("description", "Unknown error")
     except Exception as e:
         return False, str(e)
-
-def get_market_status(api):
-    """Return (is_open, next_open, next_close) from Alpaca clock."""
-    try:
-        clock = api.get_clock()
-        return clock.is_open, clock.next_open, clock.next_close
-    except:
-        return False, None, None
 
 # ------------------------------
 # Trading Loop (Background Thread)
@@ -170,7 +233,7 @@ def trading_loop():
         return
 
     # Initial market check
-    is_open, _, _ = get_market_status(api)
+    is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
     market_text = "🟢 Open" if is_open else "🔴 Closed"
     st.session_state.market_status = market_text
     st.session_state.status_message = f"✅ Running – {ticker} | Market {market_text}"
@@ -181,7 +244,7 @@ def trading_loop():
     while st.session_state.bot_running:
         try:
             # Market clock update
-            is_open, next_open, next_close = get_market_status(api)
+            is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
             market_text = "🟢 Open" if is_open else "🔴 Closed"
             st.session_state.market_status = market_text
 
@@ -318,16 +381,14 @@ with tab1:
 
     # Chart
     st.subheader(f"📊 {ticker} – Price & EMAs")
-    chart_placeholder = st.empty()
     if not st.session_state.chart_data.empty:
-        chart_placeholder.line_chart(st.session_state.chart_data)
+        st.line_chart(st.session_state.chart_data)
     else:
-        chart_placeholder.info("Waiting for market data...")
+        st.info("Waiting for market data...")
 
-    # Live Log (real‑time status from loop)
+    # Live Log
     st.caption("📋 Live Log")
-    log_placeholder = st.empty()
-    log_placeholder.code(st.session_state.loop_log, language="text")
+    st.code(st.session_state.loop_log, language="text")
 
     # Footer note
     st.markdown("---")
@@ -335,9 +396,7 @@ with tab1:
 
 with tab2:
     st.header("📘 How to Set Up Your Trading Bot")
-    st.markdown("""
-    Follow these three steps to get your API credentials. You only need to do this once.
-    """)
+    st.markdown("Follow these three steps to get your API credentials. You only need to do this once.")
 
     col_a, col_b, col_c = st.columns(3)
 
@@ -385,6 +444,5 @@ with tab2:
 # Auto‑refresh for Live Updates (fixes freezing issue)
 # ------------------------------
 if st.session_state.bot_running:
-    # Rerun the script every 5 seconds to pull fresh data from session_state
     time.sleep(5)
     st.rerun()
