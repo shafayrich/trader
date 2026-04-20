@@ -1,6 +1,6 @@
 """
 TraderMoney – EMA Crossover Trading Bot
-Premium soft dark SaaS dashboard with live updates and setup guide.
+Polished soft‑dark dashboard with premium styling.
 """
 
 import streamlit as st
@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import alpaca_trade_api as tradeapi
 
 # ------------------------------
-# Page Configuration (Full screen, custom title)
+# Page Configuration
 # ------------------------------
 st.set_page_config(
     page_title="TraderMoney",
@@ -28,7 +28,7 @@ st.set_page_config(
 )
 
 # ------------------------------
-# Session State Initialisation
+# Session State
 # ------------------------------
 if "bot_running" not in st.session_state:
     st.session_state.bot_running = False
@@ -50,12 +50,12 @@ if "loop_log" not in st.session_state:
     st.session_state.loop_log = "Waiting to start..."
 
 # ------------------------------
-# Custom CSS – Soft Dark Theme (GitHub Dark inspired)
+# Custom CSS – Refined Soft Dark Theme
 # ------------------------------
-def inject_soft_dark_css():
+def inject_refined_css():
     st.markdown("""
     <style>
-        /* Hide Streamlit default UI */
+        /* Hide Streamlit branding */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
@@ -64,47 +64,57 @@ def inject_soft_dark_css():
         div[data-testid="stDecoration"] {display: none !important;}
         div[data-testid="stStatusWidget"] {display: none !important;}
 
-        /* Soft dark global background */
+        /* Global background – soft dark */
         .stApp {
-            background-color: #0D1117;
-            color: #C9D1D9;
+            background-color: #0F1117;
+            color: #E6EDF3;
         }
 
-        /* Sidebar – slightly lighter */
+        /* Sidebar – slightly elevated */
         section[data-testid="stSidebar"] {
             background-color: #161B22;
             border-right: 1px solid #30363D;
+            padding-top: 1rem;
         }
         section[data-testid="stSidebar"] .stMarkdown,
         section[data-testid="stSidebar"] label {
-            color: #C9D1D9 !important;
+            color: #E6EDF3 !important;
         }
 
-        /* Metric cards – subtle elevation */
+        /* Metric cards – clean and modern */
         div[data-testid="stMetric"] {
             background-color: #161B22;
-            border-radius: 12px;
-            padding: 16px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            border-radius: 16px;
+            padding: 1.5rem 1rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             border: 1px solid #30363D;
+            transition: transform 0.1s ease;
+        }
+        div[data-testid="stMetric"]:hover {
+            border-color: #3FB950;
         }
         div[data-testid="stMetric"] label {
             color: #8B949E !important;
             font-weight: 500;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-            color: #C9D1D9 !important;
-            font-size: 2rem !important;
+            color: #E6EDF3 !important;
+            font-size: 2.2rem !important;
+            font-weight: 600;
         }
 
-        /* Buttons – accent green */
+        /* Buttons – consistent accent */
         .stButton button {
-            border-radius: 8px;
+            border-radius: 10px;
             font-weight: 500;
             transition: all 0.2s;
             background-color: #238636;
             color: white;
             border: 1px solid #2EA043;
+            padding: 0.5rem 1rem;
         }
         .stButton button:hover {
             background-color: #2EA043;
@@ -119,9 +129,9 @@ def inject_soft_dark_css():
         /* Chart container */
         div[data-testid="stArrowVegaLiteChart"] {
             background-color: #161B22;
-            border-radius: 12px;
-            padding: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            border-radius: 16px;
+            padding: 1rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             border: 1px solid #30363D;
         }
 
@@ -129,60 +139,65 @@ def inject_soft_dark_css():
         .streamlit-expanderHeader {
             font-weight: 600;
             background-color: #21262D;
-            border-radius: 8px;
-            color: #C9D1D9 !important;
+            border-radius: 10px;
+            color: #E6EDF3 !important;
             border: 1px solid #30363D;
+            padding: 0.75rem 1rem;
         }
 
-        /* Tabs styling */
+        /* Tabs – polished */
         .stTabs [data-baseweb="tab-list"] {
-            gap: 12px;
+            gap: 8px;
         }
         .stTabs [data-baseweb="tab"] {
-            border-radius: 8px 8px 0 0;
-            padding: 10px 20px;
+            border-radius: 10px 10px 0 0;
+            padding: 10px 24px;
             background-color: #21262D;
             color: #8B949E;
             font-weight: 500;
+            border: 1px solid #30363D;
+            border-bottom: none;
         }
         .stTabs [aria-selected="true"] {
             background-color: #161B22 !important;
-            color: #C9D1D9 !important;
+            color: #E6EDF3 !important;
             border-bottom: 3px solid #238636;
         }
 
         /* Input fields */
         .stTextInput input, .stTextInput textarea {
             background-color: #0D1117 !important;
-            color: #C9D1D9 !important;
+            color: #E6EDF3 !important;
             border: 1px solid #30363D !important;
-            border-radius: 8px;
+            border-radius: 10px;
+            padding: 0.6rem 0.8rem;
         }
         .stTextInput input:focus {
             border-color: #58A6FF !important;
-            box-shadow: 0 0 0 2px rgba(88,166,255,0.3);
+            box-shadow: 0 0 0 2px rgba(88,166,255,0.2);
         }
 
         /* Dividers */
         hr {
             border-color: #30363D;
-            margin: 1.2rem 0;
+            margin: 1.5rem 0;
         }
 
         /* Headers */
         h1, h2, h3, h4, h5, h6 {
-            color: #C9D1D9 !important;
+            color: #E6EDF3 !important;
+            font-weight: 600;
         }
 
-        /* Custom TraderMoney title */
+        /* TraderMoney title */
         .tradermoney-title {
-            font-size: 3rem;
+            font-size: 3.2rem;
             font-weight: 700;
-            background: linear-gradient(135deg, #58A6FF, #238636);
+            background: linear-gradient(135deg, #58A6FF, #3FB950);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            margin-bottom: 0.25rem;
+            margin-bottom: 0.2rem;
             letter-spacing: -0.02em;
         }
 
@@ -190,28 +205,40 @@ def inject_soft_dark_css():
         .stCodeBlock {
             background-color: #0D1117 !important;
             border: 1px solid #30363D;
-            border-radius: 8px;
+            border-radius: 12px;
+            padding: 1rem;
+        }
+        .stCodeBlock code {
+            color: #E6EDF3;
         }
 
-        /* Info/Warning/Success boxes – softer */
+        /* Alert boxes */
         div[data-testid="stAlert"] {
             background-color: #161B22;
+            border-radius: 12px;
             border-left: 4px solid;
-            border-radius: 8px;
+            padding: 1rem;
         }
-        div[data-testid="stAlert"][data-baseweb="notification"] {
-            background-color: #161B22 !important;
+
+        /* Status text */
+        .stMarkdown p {
+            color: #E6EDF3;
+        }
+
+        /* Sidebar captions */
+        .stCaption {
+            color: #8B949E !important;
         }
     </style>
     """, unsafe_allow_html=True)
 
-inject_soft_dark_css()
+inject_refined_css()
 
 # ------------------------------
-# Sidebar – Clean API Configuration
+# Sidebar – Configuration
 # ------------------------------
 with st.sidebar:
-    st.markdown("<h2 style='text-align: center; color: #C9D1D9;'>⚙️ Configuration</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #E6EDF3;'>⚙️ Configuration</h2>", unsafe_allow_html=True)
     st.divider()
 
     with st.expander("🔐 Alpaca Paper Trading", expanded=True):
@@ -238,7 +265,7 @@ with st.sidebar:
     st.caption("💡 Keep this tab open for continuous operation.")
 
 # ------------------------------
-# Helper: Fetch Market Status
+# Helper Functions
 # ------------------------------
 def fetch_market_status(api_key, secret_key):
     if not api_key or not secret_key:
@@ -250,7 +277,6 @@ def fetch_market_status(api_key, secret_key):
     except:
         return False, None, None
 
-# Update market status immediately (even before bot starts)
 if not st.session_state.bot_running:
     is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
     st.session_state.market_status = "🟢 Open" if is_open else "🔴 Closed" if alpaca_api_key else "Unknown"
@@ -494,7 +520,7 @@ with tab2:
     """)
 
 # ------------------------------
-# Auto‑refresh for Live Updates (Non‑blocking)
+# Auto‑refresh for Live Updates
 # ------------------------------
 if st.session_state.bot_running:
     time.sleep(5)
