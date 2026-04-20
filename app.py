@@ -1,6 +1,6 @@
 """
 TraderMoney – EMA Crossover Trading Bot
-Polished soft‑dark dashboard with premium styling.
+Forced dark theme – all users see the same professional dashboard.
 """
 
 import streamlit as st
@@ -50,118 +50,94 @@ if "loop_log" not in st.session_state:
     st.session_state.loop_log = "Waiting to start..."
 
 # ------------------------------
-# Custom CSS – Refined Soft Dark Theme
+# Custom CSS – Forced Dark Theme (No Streamlit Bleed)
 # ------------------------------
-def inject_refined_css():
+def inject_forced_dark_css():
     st.markdown("""
     <style>
-        /* Hide Streamlit branding */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
+        /* =============================================
+           HIDE STREAMLIT DEFAULT UI ELEMENTS
+           ============================================= */
+        #MainMenu {visibility: hidden !important;}
+        footer {visibility: hidden !important;}
+        header {visibility: hidden !important;}
         .stDeployButton {display: none !important;}
         div[data-testid="stToolbar"] {display: none !important;}
         div[data-testid="stDecoration"] {display: none !important;}
         div[data-testid="stStatusWidget"] {display: none !important;}
 
-        /* Global background – soft dark */
-        .stApp {
-            background-color: #0F1117;
-            color: #E6EDF3;
+        /* =============================================
+           FORCE DARK THEME – OVERRIDE STREAMLIT VARIABLES
+           ============================================= */
+        :root {
+            --background-color: #0F1117 !important;
+            --secondary-background-color: #161B22 !important;
+            --text-color: #E6EDF3 !important;
+            --font: 'Inter', sans-serif !important;
         }
 
-        /* Sidebar – slightly elevated */
-        section[data-testid="stSidebar"] {
-            background-color: #161B22;
-            border-right: 1px solid #30363D;
-            padding-top: 1rem;
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --background-color: #0F1117 !important;
+                --secondary-background-color: #161B22 !important;
+                --text-color: #E6EDF3 !important;
+            }
         }
-        section[data-testid="stSidebar"] .stMarkdown,
-        section[data-testid="stSidebar"] label {
+        @media (prefers-color-scheme: light) {
+            :root {
+                --background-color: #0F1117 !important;
+                --secondary-background-color: #161B22 !important;
+                --text-color: #E6EDF3 !important;
+            }
+        }
+
+        /* Global background */
+        .stApp {
+            background-color: #0F1117 !important;
             color: #E6EDF3 !important;
         }
 
-        /* Metric cards – clean and modern */
-        div[data-testid="stMetric"] {
-            background-color: #161B22;
-            border-radius: 16px;
-            padding: 1.5rem 1rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            border: 1px solid #30363D;
-            transition: transform 0.1s ease;
+        .main .block-container {
+            background-color: #0F1117 !important;
         }
-        div[data-testid="stMetric"]:hover {
-            border-color: #3FB950;
+
+        /* Sidebar */
+        section[data-testid="stSidebar"] {
+            background-color: #161B22 !important;
+            border-right: 1px solid #30363D !important;
+        }
+        section[data-testid="stSidebar"] * {
+            color: #E6EDF3 !important;
+        }
+
+        /* Metric cards */
+        div[data-testid="stMetric"] {
+            background-color: #161B22 !important;
+            border: 1px solid #30363D !important;
+            border-radius: 16px !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
         }
         div[data-testid="stMetric"] label {
             color: #8B949E !important;
-            font-weight: 500;
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
         div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
             color: #E6EDF3 !important;
-            font-size: 2.2rem !important;
-            font-weight: 600;
         }
 
-        /* Buttons – consistent accent */
+        /* Buttons */
         .stButton button {
-            border-radius: 10px;
-            font-weight: 500;
-            transition: all 0.2s;
-            background-color: #238636;
-            color: white;
-            border: 1px solid #2EA043;
-            padding: 0.5rem 1rem;
+            background-color: #238636 !important;
+            color: white !important;
+            border: 1px solid #2EA043 !important;
+            border-radius: 10px !important;
         }
         .stButton button:hover {
-            background-color: #2EA043;
-            border-color: #3FB950;
+            background-color: #2EA043 !important;
         }
         .stButton button:disabled {
-            background-color: #21262D;
-            color: #8B949E;
-            border-color: #30363D;
-        }
-
-        /* Chart container */
-        div[data-testid="stArrowVegaLiteChart"] {
-            background-color: #161B22;
-            border-radius: 16px;
-            padding: 1rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            border: 1px solid #30363D;
-        }
-
-        /* Expander headers */
-        .streamlit-expanderHeader {
-            font-weight: 600;
-            background-color: #21262D;
-            border-radius: 10px;
-            color: #E6EDF3 !important;
-            border: 1px solid #30363D;
-            padding: 0.75rem 1rem;
-        }
-
-        /* Tabs – polished */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 8px;
-        }
-        .stTabs [data-baseweb="tab"] {
-            border-radius: 10px 10px 0 0;
-            padding: 10px 24px;
-            background-color: #21262D;
-            color: #8B949E;
-            font-weight: 500;
-            border: 1px solid #30363D;
-            border-bottom: none;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: #161B22 !important;
-            color: #E6EDF3 !important;
-            border-bottom: 3px solid #238636;
+            background-color: #21262D !important;
+            color: #8B949E !important;
+            border-color: #30363D !important;
         }
 
         /* Input fields */
@@ -169,70 +145,79 @@ def inject_refined_css():
             background-color: #0D1117 !important;
             color: #E6EDF3 !important;
             border: 1px solid #30363D !important;
-            border-radius: 10px;
-            padding: 0.6rem 0.8rem;
+            border-radius: 10px !important;
         }
         .stTextInput input:focus {
             border-color: #58A6FF !important;
-            box-shadow: 0 0 0 2px rgba(88,166,255,0.2);
+            box-shadow: 0 0 0 2px rgba(88,166,255,0.2) !important;
+        }
+
+        /* Expanders */
+        .streamlit-expanderHeader {
+            background-color: #21262D !important;
+            color: #E6EDF3 !important;
+            border: 1px solid #30363D !important;
+            border-radius: 10px !important;
+        }
+
+        /* Tabs */
+        .stTabs [data-baseweb="tab"] {
+            background-color: #21262D !important;
+            color: #8B949E !important;
+            border: 1px solid #30363D !important;
+            border-bottom: none !important;
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: #161B22 !important;
+            color: #E6EDF3 !important;
+            border-bottom: 3px solid #238636 !important;
+        }
+
+        /* Alerts */
+        div[data-testid="stAlert"] {
+            background-color: #161B22 !important;
+            border-left-width: 4px !important;
+            border-left-style: solid !important;
+            border-radius: 12px !important;
+        }
+
+        /* Chart container */
+        div[data-testid="stArrowVegaLiteChart"] {
+            background-color: #161B22 !important;
+            border: 1px solid #30363D !important;
+            border-radius: 16px !important;
+            padding: 1rem !important;
+        }
+
+        /* Code blocks */
+        .stCodeBlock {
+            background-color: #0D1117 !important;
+            border: 1px solid #30363D !important;
+            border-radius: 12px !important;
+        }
+        .stCodeBlock code {
+            color: #E6EDF3 !important;
         }
 
         /* Dividers */
         hr {
-            border-color: #30363D;
-            margin: 1.5rem 0;
+            border-color: #30363D !important;
         }
 
-        /* Headers */
-        h1, h2, h3, h4, h5, h6 {
-            color: #E6EDF3 !important;
-            font-weight: 600;
-        }
-
-        /* TraderMoney title */
+        /* Custom TraderMoney title */
         .tradermoney-title {
-            font-size: 3.2rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, #58A6FF, #3FB950);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 0.2rem;
-            letter-spacing: -0.02em;
-        }
-
-        /* Code blocks (live log) */
-        .stCodeBlock {
-            background-color: #0D1117 !important;
-            border: 1px solid #30363D;
-            border-radius: 12px;
-            padding: 1rem;
-        }
-        .stCodeBlock code {
-            color: #E6EDF3;
-        }
-
-        /* Alert boxes */
-        div[data-testid="stAlert"] {
-            background-color: #161B22;
-            border-radius: 12px;
-            border-left: 4px solid;
-            padding: 1rem;
-        }
-
-        /* Status text */
-        .stMarkdown p {
-            color: #E6EDF3;
-        }
-
-        /* Sidebar captions */
-        .stCaption {
-            color: #8B949E !important;
+            font-size: 3.2rem !important;
+            font-weight: 700 !important;
+            background: linear-gradient(135deg, #58A6FF, #3FB950) !important;
+            -webkit-background-clip: text !important;
+            -webkit-text-fill-color: transparent !important;
+            background-clip: text !important;
+            margin-bottom: 0.2rem !important;
         }
     </style>
     """, unsafe_allow_html=True)
 
-inject_refined_css()
+inject_forced_dark_css()
 
 # ------------------------------
 # Sidebar – Configuration
@@ -432,7 +417,6 @@ st.caption("Automated EMA Crossover Trading – Alpaca Paper + Telegram Alerts")
 tab1, tab2 = st.tabs(["📊 Dashboard", "⚙️ Setup Guide"])
 
 with tab1:
-    # Status row
     col_status, col_market = st.columns([3, 1])
     with col_status:
         if "❌" in st.session_state.status_message:
@@ -449,7 +433,6 @@ with tab1:
         else:
             st.info("Market: Checking...")
 
-    # Metrics Cards
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("💵 Latest Price", f"${st.session_state.latest_price}" if st.session_state.latest_price else "—")
@@ -458,14 +441,12 @@ with tab1:
     with col3:
         st.metric("📉 EMA 50", st.session_state.ema_50 if st.session_state.ema_50 else "—")
 
-    # Chart
     st.subheader(f"📊 {ticker} – Price & EMAs")
     if not st.session_state.chart_data.empty:
         st.line_chart(st.session_state.chart_data)
     else:
         st.info("Waiting for market data...")
 
-    # Live Log
     st.caption("📋 Live Log")
     st.code(st.session_state.loop_log, language="text")
 
