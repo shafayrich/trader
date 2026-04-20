@@ -1,6 +1,6 @@
 """
 TraderMoney – EMA Crossover Trading Bot
-Premium SaaS‑style UI with dark mode, live dashboard, and step‑by‑step setup guide.
+Premium soft dark SaaS dashboard with live updates and setup guide.
 """
 
 import streamlit as st
@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import alpaca_trade_api as tradeapi
 
 # ------------------------------
-# Page Configuration (Full screen, Dark default)
+# Page Configuration (Full screen, custom title)
 # ------------------------------
 st.set_page_config(
     page_title="TraderMoney",
@@ -48,176 +48,170 @@ if "chart_data" not in st.session_state:
     st.session_state.chart_data = pd.DataFrame(columns=["Close", "EMA_9", "EMA_50"])
 if "loop_log" not in st.session_state:
     st.session_state.loop_log = "Waiting to start..."
-if "theme" not in st.session_state:
-    st.session_state.theme = "Dark"   # Default to Dark
 
 # ------------------------------
-# Custom CSS – Dark Mode + Hide Streamlit UI
+# Custom CSS – Soft Dark Theme (GitHub Dark inspired)
 # ------------------------------
-def inject_theme_css():
-    """Inject premium dark theme CSS and hide Streamlit default elements."""
-    if st.session_state.theme == "Dark":
-        bg_color = "#0a0c0f"
-        sidebar_bg = "#14171c"
-        card_bg = "#1c2028"
-        text_color = "#e0e4e9"
-        border_color = "#2a2f38"
-        metric_bg = "#1c2028"
-        tab_bg = "#1c2028"
-        tab_selected_bg = "#0a0c0f"
-        chart_bg = "#1c2028"
-        accent_color = "#00b894"
-    else:   # Light mode (optional)
-        bg_color = "#f5f7fa"
-        sidebar_bg = "#ffffff"
-        card_bg = "#ffffff"
-        text_color = "#1e1e1e"
-        border_color = "#e0e0e0"
-        metric_bg = "#ffffff"
-        tab_bg = "#f0f2f6"
-        tab_selected_bg = "#ffffff"
-        chart_bg = "#ffffff"
-        accent_color = "#0068c9"
-
-    st.markdown(f"""
+def inject_soft_dark_css():
+    st.markdown("""
     <style>
-        /* Hide Streamlit branding */
-        #MainMenu {{visibility: hidden;}}
-        footer {{visibility: hidden;}}
-        header {{visibility: hidden;}}
-        .stDeployButton {{display: none !important;}}
-        div[data-testid="stToolbar"] {{display: none !important;}}
-        div[data-testid="stDecoration"] {{display: none !important;}}
-        div[data-testid="stStatusWidget"] {{display: none !important;}}
+        /* Hide Streamlit default UI */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        .stDeployButton {display: none !important;}
+        div[data-testid="stToolbar"] {display: none !important;}
+        div[data-testid="stDecoration"] {display: none !important;}
+        div[data-testid="stStatusWidget"] {display: none !important;}
 
-        /* Global background */
-        .stApp {{
-            background-color: {bg_color};
-            color: {text_color};
-        }}
+        /* Soft dark global background */
+        .stApp {
+            background-color: #0D1117;
+            color: #C9D1D9;
+        }
 
-        /* Sidebar */
-        section[data-testid="stSidebar"] {{
-            background-color: {sidebar_bg};
-            border-right: 1px solid {border_color};
-        }}
+        /* Sidebar – slightly lighter */
+        section[data-testid="stSidebar"] {
+            background-color: #161B22;
+            border-right: 1px solid #30363D;
+        }
+        section[data-testid="stSidebar"] .stMarkdown,
+        section[data-testid="stSidebar"] label {
+            color: #C9D1D9 !important;
+        }
 
-        /* Sidebar text */
-        section[data-testid="stSidebar"] .stMarkdown, section[data-testid="stSidebar"] label {{
-            color: {text_color} !important;
-        }}
-
-        /* Metric cards */
-        div[data-testid="stMetric"] {{
-            background-color: {metric_bg};
+        /* Metric cards – subtle elevation */
+        div[data-testid="stMetric"] {
+            background-color: #161B22;
             border-radius: 12px;
             padding: 16px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            border: 1px solid {border_color};
-        }}
-
-        /* Metric labels and values */
-        div[data-testid="stMetric"] label {{
-            color: #9aa0ab !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            border: 1px solid #30363D;
+        }
+        div[data-testid="stMetric"] label {
+            color: #8B949E !important;
             font-weight: 500;
-        }}
-        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {{
-            color: {text_color} !important;
+        }
+        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+            color: #C9D1D9 !important;
             font-size: 2rem !important;
-        }}
+        }
 
-        /* Buttons */
-        .stButton button {{
+        /* Buttons – accent green */
+        .stButton button {
             border-radius: 8px;
             font-weight: 500;
             transition: all 0.2s;
-            background-color: {accent_color};
+            background-color: #238636;
             color: white;
-            border: none;
-        }}
-        .stButton button:hover {{
-            opacity: 0.9;
-        }}
+            border: 1px solid #2EA043;
+        }
+        .stButton button:hover {
+            background-color: #2EA043;
+            border-color: #3FB950;
+        }
+        .stButton button:disabled {
+            background-color: #21262D;
+            color: #8B949E;
+            border-color: #30363D;
+        }
 
         /* Chart container */
-        div[data-testid="stArrowVegaLiteChart"] {{
-            background-color: {chart_bg};
+        div[data-testid="stArrowVegaLiteChart"] {
+            background-color: #161B22;
             border-radius: 12px;
             padding: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            border: 1px solid {border_color};
-        }}
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            border: 1px solid #30363D;
+        }
 
         /* Expander headers */
-        .streamlit-expanderHeader {{
+        .streamlit-expanderHeader {
             font-weight: 600;
-            background-color: {tab_bg};
+            background-color: #21262D;
             border-radius: 8px;
-            color: {text_color} !important;
-        }}
+            color: #C9D1D9 !important;
+            border: 1px solid #30363D;
+        }
 
         /* Tabs styling */
-        .stTabs [data-baseweb="tab-list"] {{
+        .stTabs [data-baseweb="tab-list"] {
             gap: 12px;
-        }}
-        .stTabs [data-baseweb="tab"] {{
+        }
+        .stTabs [data-baseweb="tab"] {
             border-radius: 8px 8px 0 0;
             padding: 10px 20px;
-            background-color: {tab_bg};
-            color: {text_color};
+            background-color: #21262D;
+            color: #8B949E;
             font-weight: 500;
-        }}
-        .stTabs [aria-selected="true"] {{
-            background-color: {tab_selected_bg} !important;
-            border-bottom: 3px solid {accent_color};
-        }}
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: #161B22 !important;
+            color: #C9D1D9 !important;
+            border-bottom: 3px solid #238636;
+        }
 
         /* Input fields */
-        .stTextInput input, .stTextInput textarea {{
-            background-color: {card_bg} !important;
-            color: {text_color} !important;
-            border-color: {border_color} !important;
+        .stTextInput input, .stTextInput textarea {
+            background-color: #0D1117 !important;
+            color: #C9D1D9 !important;
+            border: 1px solid #30363D !important;
             border-radius: 8px;
-        }}
+        }
+        .stTextInput input:focus {
+            border-color: #58A6FF !important;
+            box-shadow: 0 0 0 2px rgba(88,166,255,0.3);
+        }
 
-        /* Divider */
-        hr {{
-            border-color: {border_color};
-        }}
+        /* Dividers */
+        hr {
+            border-color: #30363D;
+            margin: 1.2rem 0;
+        }
 
         /* Headers */
-        h1, h2, h3, h4, h5, h6 {{
-            color: {text_color} !important;
-        }}
+        h1, h2, h3, h4, h5, h6 {
+            color: #C9D1D9 !important;
+        }
 
-        /* Custom title styling */
-        .tradermoney-title {{
+        /* Custom TraderMoney title */
+        .tradermoney-title {
             font-size: 3rem;
             font-weight: 700;
-            background: linear-gradient(135deg, #00b894, #00cec9);
+            background: linear-gradient(135deg, #58A6FF, #238636);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            margin-bottom: 0.5rem;
-        }}
+            margin-bottom: 0.25rem;
+            letter-spacing: -0.02em;
+        }
+
+        /* Code blocks (live log) */
+        .stCodeBlock {
+            background-color: #0D1117 !important;
+            border: 1px solid #30363D;
+            border-radius: 8px;
+        }
+
+        /* Info/Warning/Success boxes – softer */
+        div[data-testid="stAlert"] {
+            background-color: #161B22;
+            border-left: 4px solid;
+            border-radius: 8px;
+        }
+        div[data-testid="stAlert"][data-baseweb="notification"] {
+            background-color: #161B22 !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
-inject_theme_css()
+inject_soft_dark_css()
 
 # ------------------------------
-# Sidebar – API Configuration
+# Sidebar – Clean API Configuration
 # ------------------------------
 with st.sidebar:
-    st.markdown("<h2 style='text-align: center;'>⚙️ Configuration</h2>", unsafe_allow_html=True)
-    st.divider()
-
-    # Optional theme toggle (kept for flexibility)
-    theme = st.selectbox("🎨 Theme", ["Dark", "Light"], index=0 if st.session_state.theme=="Dark" else 1)
-    if theme != st.session_state.theme:
-        st.session_state.theme = theme
-        st.rerun()
-
+    st.markdown("<h2 style='text-align: center; color: #C9D1D9;'>⚙️ Configuration</h2>", unsafe_allow_html=True)
     st.divider()
 
     with st.expander("🔐 Alpaca Paper Trading", expanded=True):
