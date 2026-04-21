@@ -1,508 +1,605 @@
 """
-TraderMoney – EMA Crossover Trading Bot
-Forced dark theme – all users see the same professional dashboard.
+TraderMoney – Advanced Trading Bot
+Modular, multi‑threaded CustomTkinter desktop app.
 """
 
-import streamlit as st
+import customtkinter as ctk
 import yfinance as yf
 import pandas as pd
 import requests
-import time
 import threading
+import queue
+import time
+import json
+import os
 from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, Tuple
 import alpaca_trade_api as tradeapi
+from tkinter import messagebox
+import traceback
+
+# For live chart embedding
+import matplotlib
+matplotlib.use("TkAgg")
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 
 # ------------------------------
-# Page Configuration
+# App Configuration & Constants
 # ------------------------------
-st.set_page_config(
-    page_title="TraderMoney",
-    page_icon="💸",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': None,
-        'Report a bug': None,
-        'About': None
-    }
-)
+CONFIG_FILE = os.path.expanduser("~/.tradermoney_config.json")
+DEFAULT_EMAS = (9, 50)
+DEFAULT_TICKER = "AAPL"
+DEFAULT_QUANTITY = 1
 
 # ------------------------------
-# Session State
+# Secure Config Manager
 # ------------------------------
-if "bot_running" not in st.session_state:
-    st.session_state.bot_running = False
-if "thread" not in st.session_state:
-    st.session_state.thread = None
-if "status_message" not in st.session_state:
-    st.session_state.status_message = "⚪ Bot is idle."
-if "market_status" not in st.session_state:
-    st.session_state.market_status = "Unknown"
-if "latest_price" not in st.session_state:
-    st.session_state.latest_price = None
-if "ema_9" not in st.session_state:
-    st.session_state.ema_9 = None
-if "ema_50" not in st.session_state:
-    st.session_state.ema_50 = None
-if "chart_data" not in st.session_state:
-    st.session_state.chart_data = pd.DataFrame(columns=["Close", "EMA_9", "EMA_50"])
-if "loop_log" not in st.session_state:
-    st.session_state.loop_log = "Waiting to start..."
+class ConfigManager:
+    """Handles loading/saving API credentials and user preferences."""
+    @staticmethod
+    def load() -> Dict[str, Any]:
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r") as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+
+    @staticmethod
+    def save(config: Dict[str, Any]) -> None:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(config, f, indent=2)
 
 # ------------------------------
-# Custom CSS – Forced Dark Theme (No Streamlit Bleed)
+# Data Fetcher (with connection pooling)
 # ------------------------------
-def inject_forced_dark_css():
-    st.markdown("""
-    <style>
-        /* =============================================
-           HIDE STREAMLIT DEFAULT UI ELEMENTS
-           ============================================= */
-        #MainMenu {visibility: hidden !important;}
-        footer {visibility: hidden !important;}
-        header {visibility: hidden !important;}
-        .stDeployButton {display: none !important;}
-        div[data-testid="stToolbar"] {display: none !important;}
-        div[data-testid="stDecoration"] {display: none !important;}
-        div[data-testid="stStatusWidget"] {display: none !important;}
+class DataFetcher:
+    """Handles all external API calls with session pooling."""
+    def __init__(self):
+        self.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20)
+        self.session.mount('https://', adapter)
+        self.session.headers.update({'User-Agent': 'TraderMoney/2.0'})
 
-        /* =============================================
-           FORCE DARK THEME – OVERRIDE STREAMLIT VARIABLES
-           ============================================= */
-        :root {
-            --background-color: #0F1117 !important;
-            --secondary-background-color: #161B22 !important;
-            --text-color: #E6EDF3 !important;
-            --font: 'Inter', sans-serif !important;
-        }
+    def fetch_historical(self, ticker: str, days: int = 60) -> Optional[pd.DataFrame]:
+        """Fetch historical data using yfinance with retries."""
+        for attempt in range(3):
+            try:
+                ticker_obj = yf.Ticker(ticker, session=self.session)
+                end = datetime.now()
+                start = end - timedelta(days=days)
+                df = ticker_obj.history(start=start, end=end, interval="1d", prepost=False)
+                if not df.empty:
+                    return df
+            except Exception:
+                time.sleep(2)
+        return None
 
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --background-color: #0F1117 !important;
-                --secondary-background-color: #161B22 !important;
-                --text-color: #E6EDF3 !important;
-            }
-        }
-        @media (prefers-color-scheme: light) {
-            :root {
-                --background-color: #0F1117 !important;
-                --secondary-background-color: #161B22 !important;
-                --text-color: #E6EDF3 !important;
-            }
-        }
-
-        /* Global background */
-        .stApp {
-            background-color: #0F1117 !important;
-            color: #E6EDF3 !important;
-        }
-
-        .main .block-container {
-            background-color: #0F1117 !important;
-        }
-
-        /* Sidebar */
-        section[data-testid="stSidebar"] {
-            background-color: #161B22 !important;
-            border-right: 1px solid #30363D !important;
-        }
-        section[data-testid="stSidebar"] * {
-            color: #E6EDF3 !important;
-        }
-
-        /* Metric cards */
-        div[data-testid="stMetric"] {
-            background-color: #161B22 !important;
-            border: 1px solid #30363D !important;
-            border-radius: 16px !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-        }
-        div[data-testid="stMetric"] label {
-            color: #8B949E !important;
-        }
-        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-            color: #E6EDF3 !important;
-        }
-
-        /* Buttons */
-        .stButton button {
-            background-color: #238636 !important;
-            color: white !important;
-            border: 1px solid #2EA043 !important;
-            border-radius: 10px !important;
-        }
-        .stButton button:hover {
-            background-color: #2EA043 !important;
-        }
-        .stButton button:disabled {
-            background-color: #21262D !important;
-            color: #8B949E !important;
-            border-color: #30363D !important;
-        }
-
-        /* Input fields */
-        .stTextInput input, .stTextInput textarea {
-            background-color: #0D1117 !important;
-            color: #E6EDF3 !important;
-            border: 1px solid #30363D !important;
-            border-radius: 10px !important;
-        }
-        .stTextInput input:focus {
-            border-color: #58A6FF !important;
-            box-shadow: 0 0 0 2px rgba(88,166,255,0.2) !important;
-        }
-
-        /* Expanders */
-        .streamlit-expanderHeader {
-            background-color: #21262D !important;
-            color: #E6EDF3 !important;
-            border: 1px solid #30363D !important;
-            border-radius: 10px !important;
-        }
-
-        /* Tabs */
-        .stTabs [data-baseweb="tab"] {
-            background-color: #21262D !important;
-            color: #8B949E !important;
-            border: 1px solid #30363D !important;
-            border-bottom: none !important;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: #161B22 !important;
-            color: #E6EDF3 !important;
-            border-bottom: 3px solid #238636 !important;
-        }
-
-        /* Alerts */
-        div[data-testid="stAlert"] {
-            background-color: #161B22 !important;
-            border-left-width: 4px !important;
-            border-left-style: solid !important;
-            border-radius: 12px !important;
-        }
-
-        /* Chart container */
-        div[data-testid="stArrowVegaLiteChart"] {
-            background-color: #161B22 !important;
-            border: 1px solid #30363D !important;
-            border-radius: 16px !important;
-            padding: 1rem !important;
-        }
-
-        /* Code blocks */
-        .stCodeBlock {
-            background-color: #0D1117 !important;
-            border: 1px solid #30363D !important;
-            border-radius: 12px !important;
-        }
-        .stCodeBlock code {
-            color: #E6EDF3 !important;
-        }
-
-        /* Dividers */
-        hr {
-            border-color: #30363D !important;
-        }
-
-        /* Custom TraderMoney title */
-        .tradermoney-title {
-            font-size: 3.2rem !important;
-            font-weight: 700 !important;
-            background: linear-gradient(135deg, #58A6FF, #3FB950) !important;
-            -webkit-background-clip: text !important;
-            -webkit-text-fill-color: transparent !important;
-            background-clip: text !important;
-            margin-bottom: 0.2rem !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-inject_forced_dark_css()
-
-# ------------------------------
-# Sidebar – Configuration
-# ------------------------------
-with st.sidebar:
-    st.markdown("<h2 style='text-align: center; color: #E6EDF3;'>⚙️ Configuration</h2>", unsafe_allow_html=True)
-    st.divider()
-
-    with st.expander("🔐 Alpaca Paper Trading", expanded=True):
-        alpaca_api_key = st.text_input("API Key", type="password", placeholder="PK...", help="From Alpaca Paper Dashboard")
-        alpaca_secret_key = st.text_input("Secret Key", type="password", placeholder="...", help="Keep this secret")
-
-    st.divider()
-
-    with st.expander("📱 Telegram Alerts", expanded=True):
-        telegram_token = st.text_input("Bot Token", type="password", placeholder="123456:ABC...", help="From @BotFather")
-        telegram_chat_id = st.text_input("Chat ID", placeholder="123456789", help="Your numeric Chat ID")
-
-    st.divider()
-
-    ticker = st.text_input("📊 Stock Ticker", value="AAPL", help="Yahoo Finance symbol (e.g., AAPL, TSLA)").upper().strip()
-
-    st.divider()
-
-    col1, col2 = st.columns(2)
-    start_btn = col1.button("▶️ Start Bot", use_container_width=True, disabled=st.session_state.bot_running)
-    stop_btn = col2.button("⏹️ Stop Bot", use_container_width=True, disabled=not st.session_state.bot_running)
-
-    st.divider()
-    st.caption("💡 Keep this tab open for continuous operation.")
-
-# ------------------------------
-# Helper Functions
-# ------------------------------
-def fetch_market_status(api_key, secret_key):
-    if not api_key or not secret_key:
-        return False, None, None
-    try:
-        api = tradeapi.REST(api_key, secret_key, base_url="https://paper-api.alpaca.markets", api_version="v2")
-        clock = api.get_clock()
-        return clock.is_open, clock.next_open, clock.next_close
-    except:
-        return False, None, None
-
-if not st.session_state.bot_running:
-    is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
-    st.session_state.market_status = "🟢 Open" if is_open else "🔴 Closed" if alpaca_api_key else "Unknown"
-
-def send_telegram_alert(message: str):
-    if not telegram_token or not telegram_chat_id:
-        return False, "Missing credentials"
-    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
-    payload = {"chat_id": telegram_chat_id, "text": message, "parse_mode": "HTML"}
-    try:
-        resp = requests.post(url, json=payload, timeout=10)
-        if resp.status_code == 200:
-            return True, None
-        else:
-            return False, resp.json().get("description", "Unknown error")
-    except Exception as e:
-        return False, str(e)
-
-# ------------------------------
-# Trading Loop (Background Thread)
-# ------------------------------
-def trading_loop():
-    if not alpaca_api_key or not alpaca_secret_key:
-        st.session_state.status_message = "❌ Alpaca API keys missing"
-        st.session_state.bot_running = False
-        return
-    try:
-        api = tradeapi.REST(alpaca_api_key, alpaca_secret_key, base_url="https://paper-api.alpaca.markets", api_version="v2")
-        acc = api.get_account()
-        if acc.status != "ACTIVE":
-            st.session_state.status_message = "❌ Alpaca account not active"
-            st.session_state.bot_running = False
-            return
-    except Exception as e:
-        st.session_state.status_message = f"❌ Alpaca error: {e}"
-        st.session_state.bot_running = False
-        return
-
-    is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
-    market_text = "🟢 Open" if is_open else "🔴 Closed"
-    st.session_state.market_status = market_text
-    st.session_state.status_message = f"✅ Running – {ticker} | Market {market_text}"
-
-    position = None
-    prev_ema9 = prev_ema50 = None
-
-    while st.session_state.bot_running:
+    def get_market_status(self, api: tradeapi.REST) -> bool:
+        """Return True if market is open."""
         try:
-            is_open, _, _ = fetch_market_status(alpaca_api_key, alpaca_secret_key)
-            market_text = "🟢 Open" if is_open else "🔴 Closed"
-            st.session_state.market_status = market_text
+            return api.get_clock().is_open
+        except:
+            return False
 
-            end = datetime.now()
-            start = end - timedelta(days=60)
-            data = yf.download(ticker, start=start, end=end, progress=False)
-            if data.empty:
-                st.session_state.loop_log = f"⚠️ No data for {ticker}"
-                time.sleep(60)
-                continue
+# ------------------------------
+# Trading Engine (Background Thread)
+# ------------------------------
+class TradingEngine(threading.Thread):
+    """Runs the strategy loop and communicates with UI via queues."""
+    def __init__(self, ui_queue: queue.Queue, config: Dict[str, Any]):
+        super().__init__(daemon=True)
+        self.ui_queue = ui_queue
+        self.config = config
+        self.running = False
+        self.fetcher = DataFetcher()
+        self.alpaca_api: Optional[tradeapi.REST] = None
+        self.position = 0  # current number of shares held
+        self.prev_ema = (None, None)
 
-            data['EMA_9'] = data['Close'].ewm(span=9, adjust=False).mean()
-            data['EMA_50'] = data['Close'].ewm(span=50, adjust=False).mean()
-
-            latest = data.iloc[-1]
-            price = latest['Close']
-            ema9 = latest['EMA_9']
-            ema50 = latest['EMA_50']
-
-            st.session_state.latest_price = round(price, 2)
-            st.session_state.ema_9 = round(ema9, 2)
-            st.session_state.ema_50 = round(ema50, 2)
-            st.session_state.chart_data = data[['Close', 'EMA_9', 'EMA_50']].tail(200)
-
-            if prev_ema9 and prev_ema50:
-                if prev_ema9 <= prev_ema50 and ema9 > ema50:
-                    st.session_state.loop_log = "🚀 Bullish crossover detected"
-                    if is_open and position != "long":
-                        try:
-                            api.submit_order(symbol=ticker, qty=1, side="buy", type="market", time_in_force="day")
-                            position = "long"
-                            alert = f"<b>🚀 BULLISH</b> – {ticker} @ ${price:.2f}\nBUY order placed (Paper)."
-                            send_telegram_alert(alert)
-                            st.session_state.loop_log = "✅ Buy order executed"
-                        except Exception as e:
-                            st.session_state.loop_log = f"❌ Buy failed: {e}"
-                    elif not is_open:
-                        st.session_state.loop_log = "📴 Market closed – crossover ignored"
-                elif prev_ema9 >= prev_ema50 and ema9 < ema50:
-                    st.session_state.loop_log = "🔻 Bearish crossover detected"
-                    if is_open and position == "long":
-                        try:
-                            api.submit_order(symbol=ticker, qty=1, side="sell", type="market", time_in_force="day")
-                            position = None
-                            alert = f"<b>🔻 BEARISH</b> – {ticker} @ ${price:.2f}\nSELL order placed (Paper)."
-                            send_telegram_alert(alert)
-                            st.session_state.loop_log = "✅ Sell order executed"
-                        except Exception as e:
-                            st.session_state.loop_log = f"❌ Sell failed: {e}"
-                    elif not is_open:
-                        st.session_state.loop_log = "📴 Market closed – crossover ignored"
-                else:
-                    st.session_state.loop_log = f"Monitoring – Price: ${price:.2f}"
-            else:
-                st.session_state.loop_log = f"Initialising – Price: ${price:.2f}"
-
-            prev_ema9, prev_ema50 = ema9, ema50
-            st.session_state.status_message = f"✅ Running – {ticker} | Market {market_text} | {datetime.now().strftime('%H:%M:%S')}"
-
-            for _ in range(60):
-                if not st.session_state.bot_running:
-                    break
-                time.sleep(1)
-
+    def connect_alpaca(self) -> bool:
+        """Initialize Alpaca REST client."""
+        creds = self.config.get("alpaca", {})
+        key = creds.get("api_key")
+        secret = creds.get("secret_key")
+        if not key or not secret:
+            self.ui_queue.put(("error", "Alpaca credentials missing"))
+            return False
+        try:
+            self.alpaca_api = tradeapi.REST(key, secret,
+                                           base_url="https://paper-api.alpaca.markets",
+                                           api_version="v2")
+            acc = self.alpaca_api.get_account()
+            if acc.status != "ACTIVE":
+                self.ui_queue.put(("error", "Alpaca account not active"))
+                return False
+            return True
         except Exception as e:
-            st.session_state.loop_log = f"⚠️ Loop error: {e}"
-            time.sleep(60)
+            self.ui_queue.put(("error", f"Alpaca connection failed: {e}"))
+            return False
 
-    st.session_state.status_message = "⏹️ Bot stopped"
-    st.session_state.bot_running = False
-    st.session_state.thread = None
+    def send_telegram(self, message: str) -> None:
+        """Send Telegram alert if configured."""
+        tg = self.config.get("telegram", {})
+        token = tg.get("token")
+        chat_id = tg.get("chat_id")
+        if not token or not chat_id:
+            return
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        try:
+            requests.post(url, json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"}, timeout=5)
+        except:
+            pass
+
+    def place_bracket_order(self, symbol: str, qty: int, side: str, 
+                            sl_percent: float, tp_percent: float) -> bool:
+        """Place a bracket order with stop loss and take profit."""
+        try:
+            price = float(self.alpaca_api.get_last_trade(symbol).price)
+            if side == "buy":
+                stop_loss_price = round(price * (1 - sl_percent/100), 2)
+                take_profit_price = round(price * (1 + tp_percent/100), 2)
+            else:
+                stop_loss_price = round(price * (1 + sl_percent/100), 2)
+                take_profit_price = round(price * (1 - tp_percent/100), 2)
+
+            self.alpaca_api.submit_order(
+                symbol=symbol,
+                qty=qty,
+                side=side,
+                type="market",
+                time_in_force="gtc",
+                order_class="bracket",
+                stop_loss={"stop_price": stop_loss_price},
+                take_profit={"limit_price": take_profit_price}
+            )
+            return True
+        except Exception as e:
+            self.ui_queue.put(("error", f"Bracket order failed: {e}"))
+            return False
+
+    def close_all_positions(self) -> None:
+        """Emergency kill switch."""
+        if not self.alpaca_api:
+            return
+        try:
+            self.alpaca_api.close_all_positions()
+            self.position = 0
+            self.ui_queue.put(("log", "⚠️ KILL SWITCH: All positions closed"))
+            self.send_telegram("⚠️ KILL SWITCH ACTIVATED – All positions closed")
+        except Exception as e:
+            self.ui_queue.put(("error", f"Kill switch failed: {e}"))
+
+    def run(self):
+        """Main strategy loop."""
+        if not self.connect_alpaca():
+            self.ui_queue.put(("status", "❌ Alpaca connection failed"))
+            return
+
+        ticker = self.config.get("ticker", DEFAULT_TICKER).upper()
+        mode = self.config.get("mode", "signal")
+        qty = self.config.get("quantity", DEFAULT_QUANTITY)
+        ema_fast, ema_slow = self.config.get("emas", DEFAULT_EMAS)
+        use_bracket = self.config.get("use_bracket", False)
+        sl_pct = self.config.get("sl_percent", 2.0)
+        tp_pct = self.config.get("tp_percent", 4.0)
+
+        self.ui_queue.put(("status", f"✅ Running {ticker} | Mode: {mode} | Qty: {qty}"))
+        self.send_telegram(f"🤖 Bot started for {ticker} ({mode} mode)")
+
+        while self.running:
+            try:
+                # Market status
+                is_open = self.fetcher.get_market_status(self.alpaca_api)
+                self.ui_queue.put(("market", "🟢 Open" if is_open else "🔴 Closed"))
+
+                # Fetch data
+                df = self.fetcher.fetch_historical(ticker, 60)
+                if df is None or df.empty:
+                    self.ui_queue.put(("log", f"⚠️ Data fetch failed for {ticker}"))
+                    time.sleep(60)
+                    continue
+
+                # Compute EMAs
+                df['EMA_fast'] = df['Close'].ewm(span=ema_fast, adjust=False).mean()
+                df['EMA_slow'] = df['Close'].ewm(span=ema_slow, adjust=False).mean()
+                latest = df.iloc[-1]
+                price = latest['Close']
+                ema_f = latest['EMA_fast']
+                ema_s = latest['EMA_slow']
+
+                # Update UI
+                self.ui_queue.put(("price", round(price, 2)))
+                self.ui_queue.put(("ema", (round(ema_f, 2), round(ema_s, 2))))
+                self.ui_queue.put(("chart_data", df[['Close', 'EMA_fast', 'EMA_slow']].tail(100)))
+
+                # Check for crossover
+                prev_f, prev_s = self.prev_ema
+                if prev_f is not None and prev_s is not None:
+                    signal = None
+                    if prev_f <= prev_s and ema_f > ema_s:
+                        signal = "BUY"
+                        rationale = (f"BUY Signal: EMA{ema_fast} crossed above EMA{ema_slow} "
+                                     f"indicating bullish momentum at ${price:.2f}")
+                    elif prev_f >= prev_s and ema_f < ema_s:
+                        signal = "SELL"
+                        rationale = (f"SELL Signal: EMA{ema_fast} crossed below EMA{ema_slow} "
+                                     f"indicating bearish momentum at ${price:.2f}")
+
+                    if signal:
+                        self.ui_queue.put(("log", f"🚀 {signal} signal detected"))
+                        self.ui_queue.put(("rationale", rationale))
+                        alert_msg = f"<b>{signal} Signal</b> – {ticker} @ ${price:.2f}\n{rationale}"
+                        self.send_telegram(alert_msg)
+
+                        if mode == "auto" and is_open:
+                            if signal == "BUY" and self.position == 0:
+                                try:
+                                    if use_bracket:
+                                        success = self.place_bracket_order(ticker, qty, "buy", sl_pct, tp_pct)
+                                    else:
+                                        self.alpaca_api.submit_order(symbol=ticker, qty=qty, side="buy",
+                                                                     type="market", time_in_force="day")
+                                        success = True
+                                    if success:
+                                        self.position = qty
+                                        self.ui_queue.put(("log", f"✅ Bought {qty} shares"))
+                                        self.send_telegram(f"✅ Bought {qty} {ticker} @ ${price:.2f}")
+                                except Exception as e:
+                                    self.ui_queue.put(("error", f"Buy failed: {e}"))
+                            elif signal == "SELL" and self.position > 0:
+                                try:
+                                    if use_bracket:
+                                        success = self.place_bracket_order(ticker, self.position, "sell", sl_pct, tp_pct)
+                                    else:
+                                        self.alpaca_api.submit_order(symbol=ticker, qty=self.position, side="sell",
+                                                                     type="market", time_in_force="day")
+                                        success = True
+                                    if success:
+                                        self.ui_queue.put(("log", f"✅ Sold {self.position} shares"))
+                                        self.send_telegram(f"✅ Sold {self.position} {ticker} @ ${price:.2f}")
+                                        self.position = 0
+                                except Exception as e:
+                                    self.ui_queue.put(("error", f"Sell failed: {e}"))
+                        else:
+                            reason = "market closed" if not is_open else "signal-only mode"
+                            self.ui_queue.put(("log", f"ℹ️ No execution: {reason}"))
+
+                self.prev_ema = (ema_f, ema_s)
+
+                # Update account P&L
+                if self.alpaca_api:
+                    try:
+                        acc = self.alpaca_api.get_account()
+                        equity = float(acc.equity)
+                        pl = float(acc.equity) - float(acc.last_equity)
+                        self.ui_queue.put(("account", (round(equity, 2), round(pl, 2))))
+                    except:
+                        pass
+
+                # Wait 60 seconds (check stop flag each second)
+                for _ in range(60):
+                    if not self.running:
+                        break
+                    time.sleep(1)
+
+            except Exception as e:
+                self.ui_queue.put(("error", f"Loop error: {traceback.format_exc()}"))
+                time.sleep(60)
+
+        self.ui_queue.put(("status", "⏹️ Bot stopped"))
+        self.send_telegram("🛑 Bot stopped")
+
+    def stop(self):
+        self.running = False
 
 # ------------------------------
-# Start / Stop Handlers
+# Main Application Window
 # ------------------------------
-if start_btn and not st.session_state.bot_running:
-    if not alpaca_api_key or not alpaca_secret_key:
-        st.error("❌ Alpaca API keys are required.")
-    elif not telegram_token or not telegram_chat_id:
-        st.error("❌ Telegram credentials are required.")
-    elif not ticker:
-        st.error("❌ Enter a valid ticker.")
-    else:
-        st.session_state.bot_running = True
-        st.session_state.thread = threading.Thread(target=trading_loop, daemon=True)
-        st.session_state.thread.start()
-        st.success("Bot started! Dashboard updates every 5 seconds.")
-        send_telegram_alert(f"🤖 Bot started for {ticker} (Paper trading)")
+class TraderMoneyApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("TraderMoney")
+        self.geometry("1300x800")
+        self.minsize(1100, 700)
+        ctk.set_appearance_mode("Dark")
+        ctk.set_default_color_theme("dark-blue")
+        self.configure(fg_color="#0A0C0F")
 
-if stop_btn and st.session_state.bot_running:
-    st.session_state.bot_running = False
-    if st.session_state.thread:
-        st.session_state.thread.join(timeout=5)
-    st.session_state.status_message = "⏹️ Bot stopped by user"
-    send_telegram_alert(f"🛑 Bot stopped for {ticker}")
-    st.info("Bot stopped.")
+        # Load config
+        self.config = ConfigManager.load()
+        if not self.config:
+            self.config = {"alpaca": {}, "telegram": {}, "ticker": DEFAULT_TICKER,
+                           "mode": "signal", "quantity": DEFAULT_QUANTITY,
+                           "emas": DEFAULT_EMAS, "use_bracket": False,
+                           "sl_percent": 2.0, "tp_percent": 4.0}
+
+        # Communication queue from engine to UI
+        self.ui_queue = queue.Queue()
+        self.engine: Optional[TradingEngine] = None
+
+        # Build UI
+        self.create_widgets()
+        self.after(100, self.process_queue)
+
+    def create_widgets(self):
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        # ---------- Sidebar ----------
+        self.sidebar = ctk.CTkFrame(self, width=300, corner_radius=0, fg_color="#11151A")
+        self.sidebar.grid(row=0, column=0, sticky="nsew")
+        self.sidebar.grid_rowconfigure(10, weight=1)
+
+        # Config sections
+        ctk.CTkLabel(self.sidebar, text="⚙️ Configuration", font=ctk.CTkFont(size=18, weight="bold"),
+                     text_color="#E0E0E0").pack(pady=(20,10))
+
+        # Alpaca
+        self.alpaca_frame = self._create_section_frame("🔐 Alpaca Paper")
+        self.api_key = self._add_entry(self.alpaca_frame, "API Key", show="*")
+        self.secret_key = self._add_entry(self.alpaca_frame, "Secret Key", show="*")
+        # Pre-fill from config
+        self.api_key.insert(0, self.config["alpaca"].get("api_key", ""))
+        self.secret_key.insert(0, self.config["alpaca"].get("secret_key", ""))
+
+        # Telegram
+        self.tg_frame = self._create_section_frame("📱 Telegram")
+        self.tg_token = self._add_entry(self.tg_frame, "Bot Token", show="*")
+        self.tg_chat = self._add_entry(self.tg_frame, "Chat ID")
+        self.tg_token.insert(0, self.config["telegram"].get("token", ""))
+        self.tg_chat.insert(0, self.config["telegram"].get("chat_id", ""))
+
+        # Ticker
+        self.ticker_frame = self._create_section_frame("📊 Ticker")
+        self.ticker_entry = self._add_entry(self.ticker_frame, "Symbol")
+        self.ticker_entry.insert(0, self.config.get("ticker", DEFAULT_TICKER))
+
+        # EMA Settings
+        self.ema_frame = self._create_section_frame("📈 EMAs")
+        self.ema_fast = self._add_entry(self.ema_frame, "Fast EMA", width=80)
+        self.ema_slow = self._add_entry(self.ema_frame, "Slow EMA", width=80)
+        self.ema_fast.insert(0, str(self.config["emas"][0]))
+        self.ema_slow.insert(0, str(self.config["emas"][1]))
+
+        # Quantity
+        self.qty_frame = self._create_section_frame("💰 Quantity")
+        self.qty_entry = self._add_entry(self.qty_frame, "Shares")
+        self.qty_entry.insert(0, str(self.config.get("quantity", DEFAULT_QUANTITY)))
+
+        # Mode Toggle
+        self.mode_frame = self._create_section_frame("🎛️ Mode")
+        self.mode_var = ctk.StringVar(value=self.config.get("mode", "signal"))
+        ctk.CTkRadioButton(self.mode_frame, text="Signal Only", variable=self.mode_var,
+                           value="signal", text_color="#E0E0E0").pack(anchor="w", padx=10, pady=2)
+        ctk.CTkRadioButton(self.mode_frame, text="Auto Trade", variable=self.mode_var,
+                           value="auto", text_color="#E0E0E0").pack(anchor="w", padx=10, pady=2)
+
+        # Bracket Orders Toggle
+        self.bracket_frame = self._create_section_frame("🛡️ Bracket Orders")
+        self.bracket_var = ctk.BooleanVar(value=self.config.get("use_bracket", False))
+        ctk.CTkCheckBox(self.bracket_frame, text="Enable SL/TP", variable=self.bracket_var,
+                        text_color="#E0E0E0").pack(anchor="w", padx=10)
+        self.sl_entry = self._add_entry(self.bracket_frame, "SL %", width=60)
+        self.tp_entry = self._add_entry(self.bracket_frame, "TP %", width=60)
+        self.sl_entry.insert(0, str(self.config.get("sl_percent", 2.0)))
+        self.tp_entry.insert(0, str(self.config.get("tp_percent", 4.0)))
+
+        # Save Credentials Button
+        ctk.CTkButton(self.sidebar, text="💾 Save Credentials", command=self.save_credentials,
+                      fg_color="#2D3748", hover_color="#3A4A5A").pack(pady=10, padx=20, fill="x")
+
+        # Kill Switch
+        self.kill_btn = ctk.CTkButton(self.sidebar, text="⚠️ KILL SWITCH – CLOSE ALL",
+                                      command=self.kill_switch, fg_color="#8B0000", hover_color="#A52A2A")
+        self.kill_btn.pack(pady=10, padx=20, fill="x")
+        self.kill_btn.configure(state="disabled")
+
+        # Start/Stop
+        self.btn_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        self.btn_frame.pack(pady=20, padx=20, fill="x")
+        self.start_btn = ctk.CTkButton(self.btn_frame, text="▶️ Start Bot", command=self.start_bot,
+                                       fg_color="#00A896", hover_color="#008B7A")
+        self.start_btn.pack(side="left", expand=True, fill="x", padx=(0,5))
+        self.stop_btn = ctk.CTkButton(self.btn_frame, text="⏹️ Stop Bot", command=self.stop_bot,
+                                      fg_color="#555555", hover_color="#666666", state="disabled")
+        self.stop_btn.pack(side="left", expand=True, fill="x", padx=(5,0))
+
+        # ---------- Main Content ----------
+        self.main = ctk.CTkFrame(self, fg_color="transparent")
+        self.main.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
+        self.main.grid_columnconfigure(0, weight=1)
+        self.main.grid_rowconfigure(0, weight=0)  # header
+        self.main.grid_rowconfigure(1, weight=0)  # metrics
+        self.main.grid_rowconfigure(2, weight=1)  # chart
+        self.main.grid_rowconfigure(3, weight=1)  # log & rationale
+
+        # Header
+        ctk.CTkLabel(self.main, text="💸 TraderMoney", font=ctk.CTkFont(size=32, weight="bold"),
+                     text_color="#00C9B1").grid(row=0, column=0, sticky="w")
+
+        # Metrics Row
+        self.metrics_frame = ctk.CTkFrame(self.main, fg_color="transparent")
+        self.metrics_frame.grid(row=1, column=0, sticky="ew", pady=(10,20))
+        self.metrics_frame.grid_columnconfigure((0,1,2,3,4), weight=1)
+        self.price_label = self._metric_card(self.metrics_frame, "💵 Price", "—", 0)
+        self.ema_fast_label = self._metric_card(self.metrics_frame, "📈 Fast EMA", "—", 1)
+        self.ema_slow_label = self._metric_card(self.metrics_frame, "📉 Slow EMA", "—", 2)
+        self.equity_label = self._metric_card(self.metrics_frame, "💰 Equity", "—", 3)
+        self.pl_label = self._metric_card(self.metrics_frame, "📊 Daily P&L", "—", 4)
+
+        # Status Bar
+        self.status_frame = ctk.CTkFrame(self.main, fg_color="transparent")
+        self.status_frame.grid(row=2, column=0, sticky="ew", pady=(0,10))
+        self.status_label = ctk.CTkLabel(self.status_frame, text="⚪ Bot is idle.", text_color="#E0E0E0")
+        self.status_label.pack(side="left")
+        self.market_label = ctk.CTkLabel(self.status_frame, text="Market: —", text_color="#E0E0E0")
+        self.market_label.pack(side="right")
+
+        # Chart Frame
+        self.chart_frame = ctk.CTkFrame(self.main, fg_color="#11151A", border_color="#2A3440", border_width=1)
+        self.chart_frame.grid(row=3, column=0, sticky="nsew", pady=(0,10))
+        self.chart_frame.grid_rowconfigure(0, weight=1)
+        self.chart_frame.grid_columnconfigure(0, weight=1)
+        self.fig = Figure(figsize=(8, 4), dpi=100, facecolor="#11151A")
+        self.ax = self.fig.add_subplot(111)
+        self.ax.set_facecolor("#11151A")
+        self.ax.tick_params(colors="#E0E0E0")
+        self.ax.spines['bottom'].set_color('#2A3440')
+        self.ax.spines['left'].set_color('#2A3440')
+        self.ax.spines['top'].set_visible(False)
+        self.ax.spines['right'].set_visible(False)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
+        self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+
+        # Rationale & Log Area
+        self.bottom_frame = ctk.CTkFrame(self.main, fg_color="transparent")
+        self.bottom_frame.grid(row=4, column=0, sticky="nsew")
+        self.bottom_frame.grid_columnconfigure(0, weight=1)
+        self.bottom_frame.grid_rowconfigure(0, weight=0)
+        self.bottom_frame.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(self.bottom_frame, text="📝 Trade Rationale", text_color="#00C9B1").grid(row=0, column=0, sticky="w")
+        self.rationale_text = ctk.CTkTextbox(self.bottom_frame, height=50, fg_color="#0A0C0F",
+                                             text_color="#E0E0E0", border_width=1, border_color="#2A3440")
+        self.rationale_text.grid(row=1, column=0, sticky="ew", pady=(5,10))
+        self.rationale_text.insert("0.0", "Waiting for signal...")
+        self.rationale_text.configure(state="disabled")
+
+        ctk.CTkLabel(self.bottom_frame, text="📋 Live Log", text_color="#00C9B1").grid(row=2, column=0, sticky="w")
+        self.log_text = ctk.CTkTextbox(self.bottom_frame, height=120, fg_color="#0A0C0F",
+                                       text_color="#E0E0E0", border_width=1, border_color="#2A3440")
+        self.log_text.grid(row=3, column=0, sticky="nsew", pady=(5,0))
+        self.log_text.insert("0.0", "Ready.\n")
+        self.log_text.configure(state="disabled")
+
+    def _create_section_frame(self, title):
+        frame = ctk.CTkFrame(self.sidebar, fg_color="#1A1F26")
+        frame.pack(fill="x", padx=15, pady=5)
+        ctk.CTkLabel(frame, text=title, font=ctk.CTkFont(weight="bold"),
+                     text_color="#00C9B1").pack(anchor="w", padx=10, pady=(10,5))
+        return frame
+
+    def _add_entry(self, parent, placeholder, show="", width=None):
+        entry = ctk.CTkEntry(parent, placeholder_text=placeholder, show=show,
+                             fg_color="#0F1419", border_color="#2A3440", text_color="#FFFFFF",
+                             width=width if width else None)
+        entry.pack(fill="x", padx=10, pady=5)
+        return entry
+
+    def _metric_card(self, parent, title, value, col):
+        card = ctk.CTkFrame(parent, fg_color="#11151A", border_color="#2A3440", border_width=1, corner_radius=8)
+        card.grid(row=0, column=col, padx=5, sticky="nsew")
+        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=11), text_color="#8B949E").pack(pady=(8,0))
+        label = ctk.CTkLabel(card, text=value, font=ctk.CTkFont(size=18, weight="bold"), text_color="#00C9B1")
+        label.pack(pady=(0,8))
+        return label
+
+    def save_credentials(self):
+        self.config["alpaca"] = {"api_key": self.api_key.get(), "secret_key": self.secret_key.get()}
+        self.config["telegram"] = {"token": self.tg_token.get(), "chat_id": self.tg_chat.get()}
+        self.config["ticker"] = self.ticker_entry.get().upper()
+        self.config["emas"] = (int(self.ema_fast.get()), int(self.ema_slow.get()))
+        self.config["quantity"] = int(self.qty_entry.get())
+        self.config["mode"] = self.mode_var.get()
+        self.config["use_bracket"] = self.bracket_var.get()
+        self.config["sl_percent"] = float(self.sl_entry.get())
+        self.config["tp_percent"] = float(self.tp_entry.get())
+        ConfigManager.save(self.config)
+        messagebox.showinfo("Saved", "Credentials saved securely.")
+
+    def start_bot(self):
+        if self.engine and self.engine.running:
+            return
+        # Update config from UI
+        self.config["alpaca"] = {"api_key": self.api_key.get(), "secret_key": self.secret_key.get()}
+        self.config["telegram"] = {"token": self.tg_token.get(), "chat_id": self.tg_chat.get()}
+        self.config["ticker"] = self.ticker_entry.get().upper()
+        self.config["emas"] = (int(self.ema_fast.get()), int(self.ema_slow.get()))
+        self.config["quantity"] = int(self.qty_entry.get())
+        self.config["mode"] = self.mode_var.get()
+        self.config["use_bracket"] = self.bracket_var.get()
+        self.config["sl_percent"] = float(self.sl_entry.get())
+        self.config["tp_percent"] = float(self.tp_entry.get())
+
+        self.engine = TradingEngine(self.ui_queue, self.config)
+        self.engine.running = True
+        self.engine.start()
+        self.start_btn.configure(state="disabled")
+        self.stop_btn.configure(state="normal")
+        self.kill_btn.configure(state="normal")
+        self.status_label.configure(text="⏳ Bot starting...")
+        self._log("Bot started")
+
+    def stop_bot(self):
+        if self.engine:
+            self.engine.stop()
+        self.start_btn.configure(state="normal")
+        self.stop_btn.configure(state="disabled")
+        self.kill_btn.configure(state="disabled")
+        self.status_label.configure(text="⏹️ Bot stopped")
+
+    def kill_switch(self):
+        if self.engine and self.engine.alpaca_api:
+            # Run in thread to avoid UI freeze
+            threading.Thread(target=self.engine.close_all_positions, daemon=True).start()
+            self._log("Kill switch triggered")
+
+    def process_queue(self):
+        """Process messages from the trading engine."""
+        try:
+            while True:
+                msg = self.ui_queue.get_nowait()
+                if msg[0] == "price":
+                    self.price_label.configure(text=f"${msg[1]:.2f}")
+                elif msg[0] == "ema":
+                    self.ema_fast_label.configure(text=f"{msg[1][0]:.2f}")
+                    self.ema_slow_label.configure(text=f"{msg[1][1]:.2f}")
+                elif msg[0] == "account":
+                    self.equity_label.configure(text=f"${msg[1][0]:.2f}")
+                    color = "#00C9B1" if msg[1][1] >= 0 else "#F85149"
+                    self.pl_label.configure(text=f"${msg[1][1]:.2f}", text_color=color)
+                elif msg[0] == "market":
+                    self.market_label.configure(text=f"Market: {msg[1]}")
+                elif msg[0] == "status":
+                    self.status_label.configure(text=msg[1])
+                elif msg[0] == "log":
+                    self._log(msg[1])
+                elif msg[0] == "error":
+                    self._log(f"❌ {msg[1]}")
+                elif msg[0] == "rationale":
+                    self.rationale_text.configure(state="normal")
+                    self.rationale_text.delete("0.0", "end")
+                    self.rationale_text.insert("0.0", msg[1])
+                    self.rationale_text.configure(state="disabled")
+                elif msg[0] == "chart_data":
+                    self._update_chart(msg[1])
+        except queue.Empty:
+            pass
+        self.after(100, self.process_queue)
+
+    def _log(self, text):
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", f"{datetime.now().strftime('%H:%M:%S')}  {text}\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
+
+    def _update_chart(self, df):
+        self.ax.clear()
+        self.ax.plot(df.index, df['Close'], label='Close', color='#E0E0E0', linewidth=1.5)
+        self.ax.plot(df.index, df['EMA_fast'], label=f'EMA{self.config["emas"][0]}', color='#00C9B1', linewidth=1)
+        self.ax.plot(df.index, df['EMA_slow'], label=f'EMA{self.config["emas"][1]}', color='#F85149', linewidth=1)
+        self.ax.legend(loc='upper left', facecolor='#11151A', edgecolor='#2A3440', labelcolor='#E0E0E0')
+        self.ax.set_facecolor("#11151A")
+        self.ax.tick_params(colors="#E0E0E0")
+        self.fig.tight_layout()
+        self.canvas.draw()
 
 # ------------------------------
-# Main UI – TraderMoney Branding + Tabs
+# Entry Point
 # ------------------------------
-st.markdown("<div class='tradermoney-title'>💸 TraderMoney</div>", unsafe_allow_html=True)
-st.caption("Automated EMA Crossover Trading – Alpaca Paper + Telegram Alerts")
-
-tab1, tab2 = st.tabs(["📊 Dashboard", "⚙️ Setup Guide"])
-
-with tab1:
-    col_status, col_market = st.columns([3, 1])
-    with col_status:
-        if "❌" in st.session_state.status_message:
-            st.error(st.session_state.status_message)
-        elif "✅" in st.session_state.status_message:
-            st.success(st.session_state.status_message)
-        else:
-            st.info(st.session_state.status_message)
-    with col_market:
-        if st.session_state.market_status == "🟢 Open":
-            st.success(f"Market: {st.session_state.market_status}")
-        elif st.session_state.market_status == "🔴 Closed":
-            st.warning(f"Market: {st.session_state.market_status}")
-        else:
-            st.info("Market: Checking...")
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("💵 Latest Price", f"${st.session_state.latest_price}" if st.session_state.latest_price else "—")
-    with col2:
-        st.metric("📈 EMA 9", st.session_state.ema_9 if st.session_state.ema_9 else "—")
-    with col3:
-        st.metric("📉 EMA 50", st.session_state.ema_50 if st.session_state.ema_50 else "—")
-
-    st.subheader(f"📊 {ticker} – Price & EMAs")
-    if not st.session_state.chart_data.empty:
-        st.line_chart(st.session_state.chart_data)
-    else:
-        st.info("Waiting for market data...")
-
-    st.caption("📋 Live Log")
-    st.code(st.session_state.loop_log, language="text")
-
-    st.divider()
-    st.caption("⚙️ Bot checks every minute. Trades only when market is open.")
-
-with tab2:
-    st.header("📘 How to Set Up TraderMoney")
-    st.markdown("Follow these three steps to get your API credentials. You only need to do this once.")
-
-    col_a, col_b, col_c = st.columns(3)
-
-    with col_a:
-        st.subheader("1️⃣ Alpaca Paper Trading")
-        st.markdown("""
-        1. Go to [app.alpaca.markets/paper](https://app.alpaca.markets/paper)
-        2. Sign up or log in.
-        3. In the dashboard, click **"View API Keys"**.
-        4. Generate a new key (or use existing).
-        5. Copy the **API Key** and **Secret Key**.
-        """)
-        st.info("💡 Paper trading uses fake money – no risk!")
-
-    with col_b:
-        st.subheader("2️⃣ Telegram Bot Token")
-        st.markdown("""
-        1. Open Telegram and search for **@BotFather**.
-        2. Start a chat and send `/newbot`.
-        3. Follow the prompts to name your bot.
-        4. Once created, you'll receive a **Bot Token** (e.g., `123456:ABC...`).
-        """)
-        st.warning("🔐 Keep this token secret!")
-
-    with col_c:
-        st.subheader("3️⃣ Telegram Chat ID")
-        st.markdown("""
-        1. Search for **@userinfobot** on Telegram.
-        2. Start the bot – it will immediately reply with your numeric **Chat ID**.
-        3. Copy that number into the sidebar.
-        """)
-        st.success("✅ That's it! Enter all three in the sidebar and click **Start Bot**.")
-
-    st.divider()
-    st.subheader("💡 Important – Keep the Bot Running")
-    st.warning("""
-    ⚠️ **Do not close this browser tab!** The bot runs inside this Streamlit app.
-    - If you close the tab, the bot stops.
-    - To run 24/7, deploy on a cloud server (e.g., Streamlit Community Cloud with a paid plan) or use a VPS.
-    - The bot checks for EMA crossovers **every minute**.
-    - Trades are only submitted when the market is open (🟢 Open).
-    - All orders go to Alpaca **Paper Trading** – no real money is used.
-    """)
-
-# ------------------------------
-# Auto‑refresh for Live Updates
-# ------------------------------
-if st.session_state.bot_running:
-    time.sleep(5)
-    st.rerun()
+if __name__ == "__main__":
+    app = TraderMoneyApp()
+    app.mainloop()
